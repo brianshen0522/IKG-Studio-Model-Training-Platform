@@ -186,11 +186,18 @@ export class AdminUsersController {
   @HttpCode(200)
   async resetPassword(
     @Param('id') id: string,
+    @Body() body: { new_password?: string } = {},
     @Req() req: Request,
   ) {
+    if (!body.new_password || body.new_password.length < 8) {
+      throw new HttpException(
+        { error: { code: 'VALIDATION_ERROR', message: 'Password must be at least 8 characters', requestId: '' } },
+        400,
+      );
+    }
     const actor = (req as unknown as Record<string, unknown>).user as { id: string; role: string };
-    const { tempPassword } = await this.adminUsersService.resetPassword(id, actor);
-    return { data: { id, temporary_password: tempPassword } };
+    await this.adminUsersService.setPassword(id, body.new_password, actor);
+    return { data: { id } };
   }
 
   @Get(':id/sessions')

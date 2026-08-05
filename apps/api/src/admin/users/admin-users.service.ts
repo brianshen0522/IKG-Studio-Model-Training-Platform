@@ -551,7 +551,7 @@ export class AdminUsersService {
     });
   }
 
-  async resetPassword(id: string, actor: { id: string; role: string }) {
+  async setPassword(id: string, newPassword: string, actor: { id: string; role: string }) {
     const correlationId = crypto.randomUUID();
 
     return this.db.transaction().execute(async (trx) => {
@@ -569,8 +569,7 @@ export class AdminUsersService {
         );
       }
 
-      const tempPassword = this.passwordService.generateTemporaryPassword();
-      const passwordHash = await this.passwordService.hash(tempPassword);
+      const passwordHash = await this.passwordService.hash(newPassword);
 
       await trx
         .updateTable('users')
@@ -603,7 +602,7 @@ export class AdminUsersService {
         correlationId,
       }, trx);
 
-      return { tempPassword };
+      return {};
     });
   }
 

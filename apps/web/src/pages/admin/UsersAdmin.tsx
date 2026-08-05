@@ -23,7 +23,7 @@ interface UserRow {
 
 export function UsersAdmin() {
   const [showNew, setShowNew] = useState(false);
-  const [tempPw, setTempPw] = useState<{ userId: string; password: string } | null>(null);
+  const [resetTarget, setResetTarget] = useState<{ id: string; username: string } | null>(null);
   const csrfToken = useAuthStore((s) => s.csrfToken);
   const currentUserId = useAuthStore((s) => s.user?.id);
 
@@ -42,12 +42,6 @@ export function UsersAdmin() {
     mutationFn: ({ id, role, row_version }: { id: string; role: string; row_version: number }) =>
       apiSend('PATCH', `/admin/users/${id}`, { role, row_version }, csrfToken),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-users'] }),
-  });
-
-  const resetMutation = useMutation({
-    mutationFn: (id: string) =>
-      apiSend<{ id: string; temporary_password: string }>('POST', `/admin/users/${id}/reset-password`, undefined, csrfToken),
-    onSuccess: (data) => setTempPw({ userId: data.id, password: data.temporary_password }),
   });
 
   return (
@@ -126,8 +120,7 @@ export function UsersAdmin() {
                   </button>
                   <button
                     className="btn btn-sm"
-                    disabled={resetMutation.isPending}
-                    onClick={() => resetMutation.mutate(u.id)}
+                    onClick={() => setResetTarget({ id: u.id, username: u.username })}
                   >
                     Reset Password
                   </button>
@@ -140,26 +133,73 @@ export function UsersAdmin() {
 
       {showNew && <NewUserDialog onClose={() => setShowNew(false)} />}
 
-      {tempPw && (
-        <Modal
-          title="Temporary Password"
-          onClose={() => setTempPw(null)}
-          footer={<button className="btn btn-sm" onClick={() => setTempPw(null)}>Close</button>}
-        >
-          <p>This password is shown once. User must change it on next login.</p>
-          <pre
-            style={{
-              userSelect: 'all',
-              background: 'var(--bg-code)',
-              padding: '0.75rem',
-              borderRadius: '4px',
-              fontSize: '0.95rem',
-            }}
-          >
-            <code>{tempPw.password}</code>
-          </pre>
-        </Modal>
+      {resetTarget && (
+        <SetPasswordDialog
+          username={resetTarget.username}
+          onClose={() => setResetTarget(null)}
+          onSubmit={async (password) => {
+            await apiSend('POST', `/admin/users/${resetTarget.id}/reset-password`, { new_password: password }, csrfToken);
+            setResetTarget(null);
+          }}
+        />
       )}
     </section>
+  );
+}
+
+function SetPasswordDialog({
+  username,
+  onClose,
+  onSubmit,
+}: {
+  username: string;
+  onClose: () => void;
+  onSubmit: (password: string) => Promise<void>;
+}) {
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  const mismatch = confirm.length > 0 && password !== confirm;
+  const tooShort = password.length > 0 && password.length < 8;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setPending(true);
+    try {
+      await onSubmit(password);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not set password.');
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Modal
+      title={`Set password for ${username}`}
+      onClose={onClose}
+      footer={
+        <button className="btn btn-primary" type="submit" form="set-pw-form" disabled={pending || !password || tooShort || mismatch}>
+          {pending ? 'Saving…' : 'Set password'}
+        </button>
+      }
+    >
+      <form id="set-pw-form" onSubmit={handleSubmit}>
+        <label className="field">
+          <span>New password (min 8 characters)</span>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus autoComplete="new-password" />
+        </label>
+        <label className="field">
+          <span>Confirm password</span>
+          <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
+        </label>
+        {tooShort && <div className="form-error">Password must be at least 8 characters.</div>}
+        {mismatch && <div className="form-error">Passwords do not match.</div>}
+        {error && <div className="form-error">{error}</div>}
+      </form>
+    </Modal>
   );
 }
