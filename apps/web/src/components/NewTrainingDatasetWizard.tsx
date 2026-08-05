@@ -434,6 +434,12 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
                 READY <strong>{taskType}</strong> source datasets under <strong>{activeType?.name}</strong>
                 {' — '}{sourceIds.length} of {readySources.length} selected
               </p>
+              {(() => {
+                const pending = (sources ?? []).filter((s) => s.task_type === taskType && s.status === 'SCANNING').length;
+                return pending > 0 ? (
+                  <PrereqNotice message={`${pending} source dataset(s) still scanning — their classes aren't ready yet. Wait for scan to finish or refresh this list.`} />
+                ) : null;
+              })()}
               {readySources.length > 0 && (
                 <div className="checklist-actions">
                   <button

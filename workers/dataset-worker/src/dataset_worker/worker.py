@@ -10,6 +10,7 @@ import redis as redislib
 from . import joblog, log, scanner
 from .builder import DatasetBuilder
 from .model_ingest import ModelIngestWorker
+from .reindexer import Reindexer
 from .config import Config
 from .storage import Storage
 
@@ -18,6 +19,7 @@ BUILD_EVENT = "job.dataset_build.dispatch"
 TRAINING_DATASET_SCAN_EVENT = "job.training_dataset_scan.dispatch"
 MODEL_INGEST_EVENT = "job.model_ingest.dispatch"
 TRAINING_DATASET_DELETE_EVENT = "job.training_dataset_delete.dispatch"
+DIRECTORY_REINDEX_EVENT = "job.dataset_directory_reindex.dispatch"
 
 
 def _within_root(root: str, target: str) -> bool:
@@ -99,6 +101,11 @@ class DatasetWorker:
             from .training_dataset_delete import TrainingDatasetDeleter
             with psycopg.connect(self.cfg.pg_conninfo()) as conn:
                 TrainingDatasetDeleter(conn, self.cfg).run(payload)
+            return
+        if event_type == DIRECTORY_REINDEX_EVENT:
+            payload = json.loads(fields.get("payload", "{}"))
+            with psycopg.connect(self.cfg.pg_conninfo()) as conn:
+                Reindexer(conn, self.cfg).run(payload["dataset_type_id"], payload.get("correlation_id"))
             return
         if event_type != DISPATCH_EVENT:
             return

@@ -253,6 +253,26 @@ export interface SourceDatasetsTable {
   manual_classes_override: string[] | null;
 }
 
+/** One discovered dataset folder (images/ + labels/) under a type's dataset_path. */
+export interface DatasetDirectoryIndexTable {
+  dataset_type_id: string;
+  sub_path: string;
+  image_count: Generated<number>;
+  label_count: Generated<number>;
+  discovered_at: Generated<string>;
+}
+
+/** Per-type reindex job status; PK = dataset_type_id so at most one is in flight. */
+export interface DatasetTypeReindexesTable {
+  dataset_type_id: string;
+  status: string;
+  correlation_id: string;
+  started_at: Generated<string>;
+  heartbeat_at: string | null;
+  finished_at: string | null;
+  error_message: string | null;
+}
+
 export interface SourceDatasetScansTable {
   id: Generated<string>;
   source_dataset_id: string;
@@ -618,6 +638,8 @@ export interface Database {
   training_datasets: TrainingDatasetsTable;
   idempotency_keys: IdempotencyKeysTable;
   source_datasets: SourceDatasetsTable;
+  dataset_directory_index: DatasetDirectoryIndexTable;
+  dataset_type_reindexes: DatasetTypeReindexesTable;
   source_dataset_scans: SourceDatasetScansTable;
   source_dataset_classes: SourceDatasetClassesTable;
   source_dataset_scan_issues: SourceDatasetScanIssuesTable;

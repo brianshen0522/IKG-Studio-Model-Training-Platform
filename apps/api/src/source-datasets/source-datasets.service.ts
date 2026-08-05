@@ -10,58 +10,13 @@ import { createHash, randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { normalizeRoot, isWithinRoot } from '../common/roots';
+import { dispatchDirectoryReindex, isReindexRunning } from './reindex';
 
 const PHASE1_TASK_TYPES: DatasetTaskType[] = ['DETECT', 'OBB'];
 const DISPATCH_EVENT = 'job.dataset_scan.dispatch';
 
 type Actor = { id: string; role: string };
 type Exec = Kysely<Database>;
-/** How deep to look for dataset folders under a dataset type's root. */
-const DISCOVERY_MAX_DEPTH = 4;
-/** Cap the walk so a slow/remote root (e.g. a CIFS mount) can't hang the request. */
-const DISCOVERY_TIMEOUT_MS = 5000;
-const DISCOVERY_MAX_DIRS = 5000;
-
-/**
- * Walks `root` for directories that hold both `images/` and `labels/`, returning their
- * paths relative to `root`.
- *
- * Datasets are not necessarily one level down: Dataset Manager archives to
- * `<type root>/check/<dataset>/{images,labels}`, so a depth-1 listing finds only
- * `check`, sees no images/labels inside it, and reports nothing at all. Descent stops
- * at a directory that is itself a dataset, and symlinks are never followed.
- *
- * Bounded: aborts the walk after a time/visit budget so a huge or unresponsive tree
- * returns the folders found so far instead of blocking the API forever.
- */
-async function discoverDatasetFolders(root: string): Promise<string[]> {
-  const out: string[] = [];
-  const deadline = Date.now() + DISCOVERY_TIMEOUT_MS;
-  let visited = 0;
-
-  async function walk(dir: string, rel: string, depth: number): Promise<void> {
-    if (depth > DISCOVERY_MAX_DEPTH) return;
-    if (++visited > DISCOVERY_MAX_DIRS || Date.now() > deadline) return;
-    let entries: import('fs').Dirent[];
-    try {
-      entries = await fs.promises.readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    const names = new Set(entries.filter((e) => e.isDirectory()).map((e) => e.name));
-    if (names.has('images') && names.has('labels')) {
-      if (rel) out.push(rel);
-      return; // a dataset does not contain further datasets
-    }
-    for (const e of entries) {
-      if (!e.isDirectory() || e.isSymbolicLink() || e.name.startsWith('.')) continue;
-      await walk(`${dir}/${e.name}`, rel ? `${rel}/${e.name}` : e.name, depth + 1);
-    }
-  }
-
-  await walk(root, '', 0);
-  return out.sort();
-}
 
 /**
  * Guess a folder's task type from its label geometry, for one-click registration where
@@ -282,66 +237,53 @@ export class SourceDatasetsService {
   }
 
   /**
-   * Offer the dataset folders under this type's dataset_path that are not registered yet.
-   *
-   * Uses the same bounded-recursive discovery as `rescanType`: a DM archive is laid out
-   * as `<type>/check/<dataset>/`, so a flat readdir of dataset_path finds only `check`
-   * and returns nothing. The `sub_path` values it produces (`check/<dataset>`) are also
-   * what registration stores, which is what makes the isRegistered check line up.
+   * Auto-trigger a reindex the first time a type's index is queried empty (e.g. the
+   * type was just created, or a manual DB wipe). Idempotent: the RUNNING-row check
+   * inside dispatchDirectoryReindex means concurrent callers just no-op.
+   */
+  private async autoDispatchReindexIfEmpty(datasetTypeId: string): Promise<void> {
+    const hasRows = await this.db.selectFrom('dataset_directory_index')
+      .select('sub_path').where('dataset_type_id', '=', datasetTypeId).limit(1).executeTakeFirst();
+    if (hasRows) return;
+    try {
+      await this.db.transaction().execute(async (trx) => {
+        if (await isReindexRunning(trx, datasetTypeId)) return;
+        await dispatchDirectoryReindex(this.outboxService, trx, datasetTypeId, randomUUID());
+      });
+    } catch {
+      /* best-effort: a concurrent dispatch losing the race is fine, the other one runs */
+    }
+  }
+
+  /**
+   * Offer the dataset folders under this type's dataset_path that are not registered
+   * yet. Reads the background-maintained index (`dataset_directory_index`) instead of
+   * walking the (often CIFS-mounted) filesystem synchronously — see `rescanType` for
+   * how the index gets refreshed.
    */
   async available(datasetTypeId: string) {
-    const effPath = await this.tree.effectiveBasePath(this.db, datasetTypeId);
-    if (!effPath) return [];
+    await this.autoDispatchReindexIfEmpty(datasetTypeId);
 
-    const entries = await discoverDatasetFolders(effPath.dataset_path);
+    const entries = await this.db.selectFrom('dataset_directory_index')
+      .select(['sub_path', 'image_count', 'label_count'])
+      .where('dataset_type_id', '=', datasetTypeId)
+      .execute();
 
     const existing = await this.db.selectFrom('source_datasets')
       .select(['id', 'sub_path'])
       .where('dataset_type_id', '=', datasetTypeId)
       .where('archived_at', 'is', null)
       .execute();
-    const activeSet = new Set(existing.map((r) => r.sub_path || ''));
+    const existingByPath = new Map(existing.map((r) => [r.sub_path || '', r]));
 
-    const available: Array<{
-      name: string; path: string; hasImages: boolean; hasLabels: boolean;
-      imageCount: number; labelCount: number;
-      isRegistered: boolean; registeredId: string | null;
-    }> = [];
-
-    const defImagesRel = 'images';
-    const defLabelsRel = 'labels';
-
-    for (const name of entries) {
-      const subPath = `${effPath.dataset_path}/${name}`;
-      const imagesDir = subPath + '/' + defImagesRel;
-      const labelsDir = subPath + '/' + defLabelsRel;
-
-      let hasImages = false, hasLabels = false;
-      try { hasImages = (await fs.promises.stat(imagesDir)).isDirectory(); } catch {}
-      try { hasLabels = (await fs.promises.stat(labelsDir)).isDirectory(); } catch {}
-      if (!hasImages || !hasLabels) continue;
-
-      let imageCount = 0, labelCount = 0;
-      try {
-        const imgs = await fs.promises.readdir(imagesDir);
-        imageCount = imgs.length;
-      } catch {}
-      try {
-        const lbls = await fs.promises.readdir(labelsDir);
-        labelCount = lbls.length;
-      } catch {}
-
-      const reg = activeSet.has(name);
-      const existingRow = reg ? existing.find((r) => (r.sub_path || '') === name) : null;
-
-      available.push({
-        name, path: subPath, hasImages, hasLabels,
-        imageCount, labelCount,
-        isRegistered: reg, registeredId: existingRow?.id ?? null,
-      });
-    }
-
-    return available;
+    return entries.map((e) => {
+      const reg = existingByPath.get(e.sub_path);
+      return {
+        name: e.sub_path, path: e.sub_path, hasImages: true, hasLabels: true,
+        imageCount: e.image_count, labelCount: e.label_count,
+        isRegistered: !!reg, registeredId: reg?.id ?? null,
+      };
+    });
   }
 
   /**
@@ -441,10 +383,16 @@ export class SourceDatasetsService {
    * DM-style browse: every dataset_path-having dataset type, with its on-disk folders
    * (dirs containing images/ + labels/) merged with registered source_datasets rows.
    * No manual registration — folders are auto-listed and grouped by type.
+   *
+   * Reads the background-maintained `dataset_directory_index` instead of walking the
+   * (often CIFS-mounted) filesystem synchronously on every page load — the walk used to
+   * take seconds per type and blocked this endpoint. See `rescanType` for how the index
+   * gets refreshed, and `reindexing` on each group for whether one is in flight.
    */
   async browseByType() {
     const types = await this.db.selectFrom('dataset_types')
       .select(['id', 'name', 'icon', 'color', 'parent_id', 'enabled', 'dataset_path'])
+      .where('dataset_path', 'is not', null)
       .execute();
 
     const registered = await this.db.selectFrom('source_datasets as sd')
@@ -459,31 +407,37 @@ export class SourceDatasetsService {
     const regByTypeSub = new Map<string, (typeof registered)[number]>();
     for (const r of registered) regByTypeSub.set(`${r.dataset_type_id}::${r.sub_path ?? ''}`, r);
 
+    const index = await this.db.selectFrom('dataset_directory_index')
+      .select(['dataset_type_id', 'sub_path', 'image_count']).execute();
+    const indexByType = new Map<string, typeof index>();
+    for (const row of index) {
+      const list = indexByType.get(row.dataset_type_id);
+      if (list) list.push(row); else indexByType.set(row.dataset_type_id, [row]);
+    }
+
+    const reindexes = await this.db.selectFrom('dataset_type_reindexes')
+      .select(['dataset_type_id', 'status']).where('status', '=', 'RUNNING').execute();
+    const runningSet = new Set(reindexes.map((r) => r.dataset_type_id));
+
     const groups: Array<{
       dataset_type_id: string; name: string;
       icon: string | null; color: string | null; dataset_path: string; inherited: boolean;
+      reindexing: boolean;
       folders: Array<Record<string, unknown>>;
     }> = [];
 
     for (const t of types) {
       const eff = await this.tree.effectiveBasePath(this.db, t.id);
       if (!eff) continue;
-      // Only list types that themselves carry a dataset_path (leaves), to avoid
-      // duplicate listing across an inheritance chain.
-      if (!t.dataset_path) continue;
 
-      const found = await discoverDatasetFolders(eff.dataset_path);
+      const found = indexByType.get(t.id) ?? [];
+      if (found.length === 0 && !runningSet.has(t.id)) await this.autoDispatchReindexIfEmpty(t.id);
 
-      const folders: Array<Record<string, unknown>> = [];
-      for (const name of found) {
-        const dir = `${eff.dataset_path}/${name}`;
-
-        let imageCount = 0;
-        try { imageCount = (await fs.promises.readdir(`${dir}/images`)).length; } catch {}
-
-        const reg = regByTypeSub.get(`${t.id}::${name}`) ?? null;
-        folders.push({
-          sub_path: name, path: dir, image_count_on_disk: imageCount,
+      const folders: Array<Record<string, unknown>> = found.map((row) => {
+        const reg = regByTypeSub.get(`${t.id}::${row.sub_path}`) ?? null;
+        return {
+          sub_path: row.sub_path, path: `${eff.dataset_path}/${row.sub_path}`,
+          image_count_on_disk: row.image_count,
           registered: !!reg,
           source_dataset_id: reg?.id ?? null,
           status: reg?.status ?? null,
@@ -492,12 +446,13 @@ export class SourceDatasetsService {
           class_count: reg?.class_count ?? null,
           classes_source: reg?.classes_source ?? null,
           last_scan_at: reg?.last_scan_at ?? null,
-        });
-      }
+        };
+      });
 
       groups.push({
         dataset_type_id: t.id, name: t.name,
         icon: t.icon, color: t.color, dataset_path: eff.dataset_path, inherited: eff.inherited,
+        reindexing: runningSet.has(t.id),
         folders,
       });
     }
@@ -536,10 +491,11 @@ export class SourceDatasetsService {
   }
 
   /**
-   * Type-level rescan: re-discover folders under the type's dataset_path and enqueue a
-   * scan job for each dataset folder. New folders are lazily registered (which itself
-   * dispatches a scan); already-registered, non-scanning ones get a fresh rescan.
-   * Each folder is an independent worker job, so total type size is irrelevant.
+   * Type-level rescan: dispatch a background reindex of the folder listing under this
+   * type's dataset_path. Does NOT re-scan already-registered source datasets — each
+   * folder keeps its own per-source Rescan button for that. This only refreshes which
+   * folders exist / their image & label counts, so `browseByType`/`available` show
+   * current disk state without a synchronous walk on every page load.
    */
   async rescanType(datasetTypeId: string, actor: Actor) {
     const correlationId = randomUUID();
@@ -547,45 +503,15 @@ export class SourceDatasetsService {
     const eff = await this.tree.effectiveBasePath(this.db, datasetTypeId);
     if (!eff) throw err(errorCode.SOURCE_DATASET_DATASET_TYPE_INVALID, 'dataset type has no dataset_path (direct or inherited)', 400);
 
-    const entries = await discoverDatasetFolders(eff.dataset_path);
-
-    const registered = new Map(
-      (await this.db.selectFrom('source_datasets')
-        .select(['id', 'sub_path', 'status', 'archived_at'])
-        .where('dataset_type_id', '=', datasetTypeId)
-        .where('archived_at', 'is', null)
-        .execute()
-      ).map((r) => [r.sub_path ?? '', r]),
-    );
-
-    const results: Array<{ sub_path: string; action: 'registered' | 'rescanned' | 'skipped'; source_dataset_id?: string; reason?: string }> = [];
-
-    for (const name of entries) {
-      const reg = registered.get(name);
-      if (!reg) {
-        const row = await this.ensure({ dataset_type_id: datasetTypeId, sub_path: name }, actor);
-        results.push({ sub_path: name, action: 'registered', source_dataset_id: row.id });
-        continue;
-      }
-      if (reg.status === 'SCANNING') {
-        results.push({ sub_path: name, action: 'skipped', source_dataset_id: reg.id, reason: 'already scanning' });
-        continue;
-      }
-      try {
-        await this.rescan(reg.id, actor);
-        results.push({ sub_path: name, action: 'rescanned', source_dataset_id: reg.id });
-      } catch (e) {
-        results.push({ sub_path: name, action: 'skipped', source_dataset_id: reg.id, reason: e instanceof Error ? e.message : 'rescan failed' });
-      }
-    }
-
-    await this.auditService.append({
-      actorType: 'USER', actorUserId: actor.id, actionCode: 'DATASET_TYPE_RESCAN_REQUESTED',
-      resourceTypeCode: 'DATASET_TYPE', resourceId: datasetTypeId, result: 'SUCCESS', correlationId,
-      metadata: { folders: results.length, results },
+    await this.db.transaction().execute(async (trx) => {
+      await dispatchDirectoryReindex(this.outboxService, trx, datasetTypeId, correlationId);
+      await this.auditService.append({
+        actorType: 'USER', actorUserId: actor.id, actionCode: 'DATASET_TYPE_REINDEX_REQUESTED',
+        resourceTypeCode: 'DATASET_TYPE', resourceId: datasetTypeId, result: 'SUCCESS', correlationId,
+      }, trx);
     });
 
-    return { dataset_type_id: datasetTypeId, dispatched: results.filter((r) => r.action !== 'skipped').length, results };
+    return { dataset_type_id: datasetTypeId, correlation_id: correlationId };
   }
 
   async rescan(id: string, actor: Actor) {

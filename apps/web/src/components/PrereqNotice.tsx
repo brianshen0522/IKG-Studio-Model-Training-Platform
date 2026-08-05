@@ -1,4 +1,4 @@
-export function PrereqNotice({ message, onGoToStep }: { message: string; onGoToStep: () => void }) {
+export function PrereqNotice({ message, onGoToStep }: { message: string; onGoToStep?: () => void }) {
   return (
     <div
       style={{
@@ -15,9 +15,11 @@ export function PrereqNotice({ message, onGoToStep }: { message: string; onGoToS
       }}
     >
       <span>{message}</span>
-      <button className="btn btn-sm btn-secondary" onClick={onGoToStep} type="button">
-        Go to Step 1
-      </button>
+      {onGoToStep && (
+        <button className="btn btn-sm btn-secondary" onClick={onGoToStep} type="button">
+          Go to Step 1
+        </button>
+      )}
     </div>
   );
 }

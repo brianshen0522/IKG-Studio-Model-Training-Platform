@@ -8,6 +8,7 @@ import { OutboxService } from '../../outbox/outbox.service';
 import { DatasetTypesTreeService } from './dataset-types-tree.service';
 import { DatasetTypesValidatorService } from './dataset-types-validator.service';
 import { rootRelation } from '../../common/roots';
+import { dispatchDirectoryReindex } from '../../source-datasets/reindex';
 
 const COLOR_REGEX = /^#[0-9A-Fa-f]{6}$/;
 const ICON_WHITELIST = new Set([
@@ -216,6 +217,7 @@ export class DatasetTypesService {
         eventType: 'dataset-type.changed', aggregateTypeCode: 'DATASET_TYPE', aggregateId: id,
         payload: { id, action: 'created' } as Record<string, unknown>, correlationId,
       }, trx);
+      await dispatchDirectoryReindex(this.outboxService, trx, id, correlationId);
       return row;
     });
   }
@@ -279,6 +281,7 @@ export class DatasetTypesService {
         eventType: 'dataset-type.changed', aggregateTypeCode: 'DATASET_TYPE', aggregateId: id,
         payload: { id, changes: Object.keys(diff) } as Record<string, unknown>, correlationId,
       }, trx);
+      if ('dataset_path' in diff) await dispatchDirectoryReindex(this.outboxService, trx, id, correlationId);
       return updated;
     });
   }

@@ -30,8 +30,9 @@ interface TypeGroup {
   name: string;
   icon: string | null;
   color: string | null;
-  base_path: string;
+  dataset_path: string;
   inherited: boolean;
+  reindexing: boolean;
   folders: Folder[];
 }
 
@@ -123,7 +124,7 @@ export function SourceDatasetsPage() {
           head={<>
             <span className="type-dot" style={{ background: g.color ?? 'var(--primary)' }} />
             <h3>{g.name}</h3>
-            <code className="type-path">{g.base_path}</code>
+            <code className="type-path">{g.dataset_path}</code>
             <span className="stat-pill">
               {g.folders.filter((f) => f.registered).length}/{g.folders.length} registered
             </span>
@@ -132,10 +133,10 @@ export function SourceDatasetsPage() {
           <div className="type-group-actions">
             <button
               className="btn btn-sm btn-ghost"
-              disabled={rescanTypeMut.isPending}
+              disabled={rescanTypeMut.isPending || g.reindexing}
               onClick={() => rescanTypeMut.mutate(g.dataset_type_id)}
             >
-              {rescanTypeMut.isPending ? 'Rescanning…' : 'Rescan type'}
+              {g.reindexing || rescanTypeMut.isPending ? 'Reindexing…' : 'Rescan type'}
             </button>
           </div>
 
