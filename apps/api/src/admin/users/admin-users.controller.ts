@@ -189,9 +189,9 @@ export class AdminUsersController {
     @Body() body: { new_password?: string } = {},
     @Req() req: Request,
   ) {
-    if (!body.new_password || body.new_password.length < 8) {
+    if (!body.new_password) {
       throw new HttpException(
-        { error: { code: 'VALIDATION_ERROR', message: 'Password must be at least 8 characters', requestId: '' } },
+        { error: { code: 'VALIDATION_ERROR', message: 'Password is required', requestId: '' } },
         400,
       );
     }

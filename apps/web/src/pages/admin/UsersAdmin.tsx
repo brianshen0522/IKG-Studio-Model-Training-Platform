@@ -162,7 +162,6 @@ function SetPasswordDialog({
   const [pending, setPending] = useState(false);
 
   const mismatch = confirm.length > 0 && password !== confirm;
-  const tooShort = password.length > 0 && password.length < 8;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,21 +181,20 @@ function SetPasswordDialog({
       title={`Set password for ${username}`}
       onClose={onClose}
       footer={
-        <button className="btn btn-primary" type="submit" form="set-pw-form" disabled={pending || !password || tooShort || mismatch}>
+        <button className="btn btn-primary" type="submit" form="set-pw-form" disabled={pending || !password || mismatch}>
           {pending ? 'Saving…' : 'Set password'}
         </button>
       }
     >
       <form id="set-pw-form" onSubmit={handleSubmit}>
         <label className="field">
-          <span>New password (min 8 characters)</span>
+          <span>New password</span>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus autoComplete="new-password" />
         </label>
         <label className="field">
           <span>Confirm password</span>
           <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
         </label>
-        {tooShort && <div className="form-error">Password must be at least 8 characters.</div>}
         {mismatch && <div className="form-error">Passwords do not match.</div>}
         {error && <div className="form-error">{error}</div>}
       </form>
