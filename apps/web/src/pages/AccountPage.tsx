@@ -60,10 +60,58 @@ function AddPasskeyDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
+function ChangePasswordSection({ onDone }: { onDone: () => void }) {
+  const changePassword = useAuthStore((s) => s.changePassword);
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  const mismatch = confirm.length > 0 && next !== confirm;
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setPending(true);
+    try {
+      await changePassword(current, next, confirm);
+      onDone();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not change password. Please try again.');
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <form className="card" style={{ maxWidth: 420, marginBottom: '1.5rem' }} onSubmit={onSubmit}>
+      <label className="field">
+        <span>Current password</span>
+        <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
+      </label>
+      <label className="field">
+        <span>New password</span>
+        <input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" />
+      </label>
+      <label className="field">
+        <span>Confirm new password</span>
+        <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
+      </label>
+      {mismatch && <div className="form-error">Passwords do not match.</div>}
+      {error && <div className="form-error">{error}</div>}
+      <button className="btn btn-primary" type="submit" disabled={pending || !current || !next || mismatch}>
+        {pending ? 'Saving…' : 'Change password'}
+      </button>
+    </form>
+  );
+}
+
 export function AccountPage() {
   const user = useAuthStore((s) => s.user);
   const csrfToken = useAuthStore((s) => s.csrfToken);
   const [showAdd, setShowAdd] = useState(false);
+  const [showPw, setShowPw] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['passkeys'],
@@ -86,6 +134,15 @@ export function AccountPage() {
         <div><dt>Display name</dt><dd>{user?.display_name}</dd></div>
         <div><dt>Role</dt><dd>{user?.role}</dd></div>
       </div>
+
+      <div className="page-head">
+        <h3 style={{ margin: 0, fontSize: '1rem' }}>Password</h3>
+        <div className="spacer" />
+        <button className="btn btn-sm" onClick={() => setShowPw((v) => !v)}>
+          {showPw ? 'Cancel' : 'Change password'}
+        </button>
+      </div>
+      {showPw && <ChangePasswordSection onDone={() => setShowPw(false)} />}
 
       <div className="page-head">
         <h3 style={{ margin: 0, fontSize: '1rem' }}>Passkeys</h3>
