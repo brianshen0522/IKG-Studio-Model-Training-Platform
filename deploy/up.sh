@@ -66,8 +66,26 @@ STATUS=$?
 # only checks the host; the container could still end up CPU-only (e.g. driver/toolkit
 # mismatch, or torch built for the wrong CUDA version).
 if [ "$STATUS" -eq 0 ] && [ "${1:-}" = "up" ]; then
-  cuda=$(docker compose -f docker-compose.yml $GPU_ARGS -f "$OVERLAY" exec -T training-worker \
-    uv run python -c "import torch; print(torch.cuda.is_available())" 2>/dev/null || echo "unknown")
+  echo "up.sh: checking training-worker GPU support (first torch import can take a while)…" >&2
+  # Spinner so the wait doesn't look like a hang.
+  docker compose -f docker-compose.yml $GPU_ARGS -f "$OVERLAY" exec -T training-worker \
+    uv run python -c "import torch; print(torch.cuda.is_available())" 2>/dev/null > /tmp/up-cuda-check &
+  CHECK_PID=$!
+  i=0
+  while kill -0 "$CHECK_PID" 2>/dev/null; do
+    i=$((i + 1))
+    case $((i % 4)) in
+      0) c='|' ;;
+      1) c='/' ;;
+      2) c='-' ;;
+      3) c='\\' ;;
+    esac
+    printf '\rup.sh: checking GPU support… %s' "$c" >&2
+    sleep 0.1
+  done
+  cuda=$(cat /tmp/up-cuda-check 2>/dev/null)
+  rm -f /tmp/up-cuda-check
+  printf '\r' >&2
   if [ -n "$GPU_ARGS" ]; then
     if [ "$cuda" = "True" ]; then
       echo "up.sh: training-worker is using CUDA (torch.cuda.is_available() = True)" >&2
