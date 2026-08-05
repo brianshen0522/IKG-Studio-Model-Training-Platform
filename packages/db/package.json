@@ -1,0 +1,23 @@
+{
+  "name": "@model-trainer/db",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "migrate": "tsx src/migrate.ts"
+  },
+  "dependencies": {
+    "kysely": "^0.28",
+    "pg": "^8.13"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/pg": "^8.11",
+    "tsx": "^4",
+    "typescript": "^5.7"
+  }
+}

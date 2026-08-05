@@ -1,0 +1,33 @@
+# YOLO Trainer — ML worker (Ultralytics training + benchmark)
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+# OpenCV (pulled in by ultralytics) needs these shared libs at runtime.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app/workers/training-worker
+# Install dependencies first (cached unless pyproject/lock change) so source edits
+# don't re-download the heavy torch/ultralytics stack.
+COPY workers/training-worker/pyproject.toml workers/training-worker/uv.lock ./
+RUN uv sync --no-install-project --frozen
+# Then the project source (fast layer).
+COPY workers/training-worker/ ./
+RUN uv sync --frozen
+
+# Torch backend selection.
+#   TORCH_BACKEND=cpu   (default) → the CPU-only torch pinned in uv.lock. Correct for
+#                        macOS/Windows Docker (no GPU passthrough) and CPU-only Linux.
+#   TORCH_BACKEND=cu124 (or cu121/cu118/cu128…) → for an NVIDIA GPU host: re-install the
+#                        matching CUDA torch build over the CPU one. Requires the NVIDIA
+#                        Container Toolkit on the host and running with docker-compose.gpu.yml.
+ARG TORCH_BACKEND=cpu
+RUN if [ "$TORCH_BACKEND" != "cpu" ]; then \
+      uv pip install --reinstall --torch-backend="$TORCH_BACKEND" torch torchvision ; \
+    fi
+
+# Offline-first: entrypoint forces Ultralytics settings.json (huggingface/sync = false)
+# inside the persistent yolo-weights volume at every start, then runs the worker.
+ENTRYPOINT ["sh", "/app/workers/training-worker/entrypoint.sh"]
+
+# --no-sync: run from the already-installed venv without an implicit network sync at
+# startup (the worker runs on an internet-less internal network).
+CMD ["uv", "run", "--no-sync", "training-worker"]

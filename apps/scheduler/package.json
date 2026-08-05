@@ -1,0 +1,25 @@
+{
+  "name": "@model-trainer/scheduler",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@model-trainer/db": "workspace:^",
+    "@model-trainer/shared-types": "workspace:^",
+    "ioredis": "^5.4",
+    "kysely": "^0.28",
+    "pg": "^8.13"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/pg": "^8.11",
+    "tsx": "^4.19",
+    "typescript": "^5.7"
+  }
+}

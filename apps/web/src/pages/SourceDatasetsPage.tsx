@@ -1,0 +1,214 @@
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiGet, apiSend } from '../lib/api';
+import { StatusBadge } from '../components/StatusBadge';
+import { SkeletonLoader } from '../components/SkeletonLoader';
+import { EmptyState } from '../components/EmptyState';
+import { formatDate } from '../lib/format';
+import { useAuthStore } from '../stores/auth';
+import { useUrlParam } from '../lib/urlState';
+import { useUiStore } from '../stores/ui';
+import { CollapsibleTypeGroup, useTypeGroupCollapse } from '../components/CollapsibleTypeGroup';
+import { SourceDatasetDetailPage } from './SourceDatasetDetailPage';
+
+interface Folder {
+  sub_path: string;
+  path: string;
+  image_count_on_disk: number;
+  registered: boolean;
+  source_dataset_id: string | null;
+  status: string | null;
+  task_type: string | null;
+  matched_pair_count: number | null;
+  class_count: number | null;
+  classes_source: string | null;
+  last_scan_at: string | null;
+}
+
+interface TypeGroup {
+  dataset_type_id: string;
+  name: string;
+  icon: string | null;
+  color: string | null;
+  base_path: string;
+  inherited: boolean;
+  folders: Folder[];
+}
+
+export function SourceDatasetsPage() {
+  const qc = useQueryClient();
+  const csrfToken = useAuthStore((s) => s.csrfToken);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useUrlParam('sourceDatasetId');
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['source-datasets', 'by-type'],
+    refetchInterval: 5000,
+    queryFn: () => apiGet<TypeGroup[]>('/source-datasets/by-type'),
+  });
+
+  const ensureMut = useMutation({
+    mutationFn: (f: { dataset_type_id: string; sub_path: string; task_type?: string }) =>
+      apiSend('POST', '/source-datasets/ensure', f, csrfToken),
+    onSettled: () => {
+      setBusy(null);
+      qc.invalidateQueries({ queryKey: ['source-datasets'] });
+    },
+  });
+
+  const rescanMut = useMutation({
+    mutationFn: (id: string) => apiSend('POST', `/source-datasets/${id}/rescan`, undefined, csrfToken),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['source-datasets'] }),
+  });
+
+  const rescanTypeMut = useMutation({
+    mutationFn: (id: string) => apiSend('POST', `/source-datasets/types/${id}/rescan`, undefined, csrfToken),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['source-datasets'] }),
+  });
+
+  const { isCollapsed, toggleGroup, toggleAll, anyCollapsed } = useTypeGroupCollapse('source', (data ?? []).map((g) => g.dataset_type_id));
+
+  const goBack = () => {
+    setSelectedId(null);
+    const returnDsId = useUiStore.getState().sourceReturnTrainingDatasetId;
+    useUiStore.getState().setSourceReturnTrainingDatasetId(null);
+    if (returnDsId) useUiStore.getState().setDatasetTab('training');
+  };
+
+  if (selectedId) return <SourceDatasetDetailPage id={selectedId} onBack={goBack} />;
+
+  const totalFolders = data?.reduce((n, g) => n + g.folders.length, 0) ?? 0;
+  const totalRegistered = data?.reduce((n, g) => n + g.folders.filter((f) => f.registered).length, 0) ?? 0;
+  const totalImages = data?.reduce(
+    (n, g) => n + g.folders.reduce((m, f) => m + (f.image_count_on_disk || 0), 0),
+    0,
+  ) ?? 0;
+
+  return (
+    <section className="page">
+      <header className="page-head">
+        <h2>Source Datasets</h2>
+        <p className="page-sub">
+          Read-only folders on disk, discovered per dataset type. Register a folder to scan and index it.
+        </p>
+        <div className="spacer" />
+        {data && data.length > 0 && (
+          <button className="btn btn-sm btn-ghost" onClick={toggleAll}>
+            {anyCollapsed ? 'Expand all' : 'Collapse all'}
+          </button>
+        )}
+        {data && <span className="count">{totalFolders} folders</span>}
+      </header>
+
+      {data && (
+        <div className="stats-strip">
+          <span className="stat-pill"><strong>{totalFolders}</strong> folders</span>
+          <span className="stat-pill"><strong>{totalRegistered}</strong> registered</span>
+          <span className="stat-pill"><strong>{data.length}</strong> types</span>
+          {totalImages > 0 && <span className="stat-pill"><strong>{totalImages.toLocaleString()}</strong> images</span>}
+        </div>
+      )}
+
+      {isLoading && <SkeletonLoader rows={3} cols={4} variant="table" />}
+      {error && <EmptyState type="error" message={(error as Error).message} />}
+      {data && data.length === 0 && (
+        <EmptyState message="No dataset types with a base path configured." />
+      )}
+
+      {data?.map((g) => (
+        <CollapsibleTypeGroup
+          key={g.dataset_type_id}
+          collapsed={isCollapsed(g.dataset_type_id)}
+          onToggle={() => toggleGroup(g.dataset_type_id)}
+          head={<>
+            <span className="type-dot" style={{ background: g.color ?? 'var(--primary)' }} />
+            <h3>{g.name}</h3>
+            <code className="type-path">{g.base_path}</code>
+            <span className="stat-pill">
+              {g.folders.filter((f) => f.registered).length}/{g.folders.length} registered
+            </span>
+          </>}
+        >
+          <div className="type-group-actions">
+            <button
+              className="btn btn-sm btn-ghost"
+              disabled={rescanTypeMut.isPending}
+              onClick={() => rescanTypeMut.mutate(g.dataset_type_id)}
+            >
+              {rescanTypeMut.isPending ? 'Rescanning…' : 'Rescan type'}
+            </button>
+          </div>
+
+          {g.folders.length === 0 ? (
+            <EmptyState size="small" message="No dataset folders found under this path." />
+          ) : (
+            <div className="folder-grid">
+              {g.folders.map((f) => {
+                const key = `${g.dataset_type_id}::${f.sub_path}`;
+                const isBusy = busy === key || (ensureMut.isPending && ensureMut.variables?.sub_path === f.sub_path);
+                return (
+                  <div
+                    className={`folder-card${f.registered ? ' is-registered' : ''}`}
+                    key={f.sub_path}
+                    onClick={f.registered && f.source_dataset_id ? () => setSelectedId(f.source_dataset_id) : undefined}
+                    style={{
+                      ...(f.registered ? { cursor: 'pointer' } : {}),
+                      ...(g.color ? ({ '--tone-color': g.color } as React.CSSProperties) : {}),
+                    }}
+                  >
+                    <div className="folder-card-head">
+                      <span className="folder-name">{f.sub_path}</span>
+                      {f.registered && f.status && <StatusBadge status={f.status} />}
+                    </div>
+                    <div className="folder-images">{f.image_count_on_disk.toLocaleString()} images</div>
+                    <div className="folder-meta">
+                      {f.registered ? (
+                        <>
+                          <span>{f.matched_pair_count ?? '—'} pairs</span>
+                          <span>·</span>
+                          <span>{f.class_count ?? '—'} classes</span>
+                        </>
+                      ) : (
+                        <span>not registered</span>
+                      )}
+                    </div>
+                    {f.registered && f.classes_source === 'TYPE_FALLBACK' && (
+                      <div className="folder-sub folder-sub-warn" title="No classes.txt in this folder; using the most common classes.txt among other datasets of this type">
+                        ⚠ classes.txt missing — using type fallback
+                      </div>
+                    )}
+                    {f.registered && f.last_scan_at && (
+                      <div className="folder-sub">Scanned {formatDate(f.last_scan_at)}</div>
+                    )}
+                    <div className="folder-actions" onClick={(e) => e.stopPropagation()}>
+                      {!f.registered ? (
+                        <button
+                          className="btn btn-sm"
+                          disabled={isBusy}
+                          onClick={() => {
+                            setBusy(key);
+                            ensureMut.mutate({ dataset_type_id: g.dataset_type_id, sub_path: f.sub_path });
+                          }}
+                        >
+                          {isBusy ? 'Registering…' : 'Register & scan'}
+                        </button>
+                      ) : (
+                        <button
+                          className="btn btn-sm btn-ghost"
+                          disabled={rescanMut.isPending || f.status === 'SCANNING'}
+                          onClick={() => f.source_dataset_id && rescanMut.mutate(f.source_dataset_id)}
+                        >
+                          {f.status === 'SCANNING' ? 'Scanning…' : 'Rescan'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CollapsibleTypeGroup>
+      ))}
+    </section>
+  );
+}

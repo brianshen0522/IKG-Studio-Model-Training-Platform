@@ -1,0 +1,219 @@
+name: model-qa
+
+networks:
+  qa:
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    networks: [qa]
+    volumes:
+      - ../data/qa-postgres:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: model_trainer
+      POSTGRES_USER: migration_role
+      POSTGRES_PASSWORD: changeme
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U migration_role -d model_trainer"]
+      interval: 4s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    networks: [qa]
+    volumes:
+      - ../data/qa-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 4s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    networks: [qa]
+    ports:
+      - "9101:9001"
+    volumes:
+      - ../data/qa-minio:/data
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: changeme
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 4s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    image: postgres:16-alpine
+    networks: [qa]
+    depends_on:
+      postgres: { condition: service_healthy }
+    volumes:
+      - ../database/migrations:/migrations:ro
+    environment:
+      PGHOST: postgres
+      PGUSER: migration_role
+      PGPASSWORD: changeme
+      PGDATABASE: model_trainer
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        for f in /migrations/[0-9]*.sql; do echo "applying $$(basename $$f)"; psql -v ON_ERROR_STOP=1 -q -f "$$f"; done
+        psql -v ON_ERROR_STOP=1 -c "ALTER ROLE backend_role LOGIN PASSWORD 'changeme'; ALTER ROLE worker_role LOGIN PASSWORD 'changeme'; ALTER ROLE scheduler_role LOGIN PASSWORD 'changeme';"
+        echo "MIGRATIONS DONE"
+    restart: "no"
+
+  bootstrap:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    networks: [qa]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: model_trainer
+      POSTGRES_USER: backend_role
+      POSTGRES_PASSWORD: changeme
+      BOOTSTRAP_ADMIN_USERNAME: admin
+      BOOTSTRAP_ADMIN_PASSWORD: AdminPass123!
+    command: ["node_modules/.bin/tsx", "scripts/create-admin.ts"]
+    restart: "no"
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    networks: [qa]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      bootstrap: { condition: service_completed_successfully }
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: model_trainer
+      POSTGRES_USER: backend_role
+      POSTGRES_PASSWORD: changeme
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: changeme
+      MINIO_BUCKET: artifacts
+      MINIO_SECURE: "false"
+      SESSION_SECRET: qa-session-secret
+      COOKIE_SECURE: "false"
+      WEBAUTHN_RP_ID: localhost
+      WEBAUTHN_RP_NAME: Model Training Platform
+      WEBAUTHN_ORIGIN: http://localhost:8088
+    volumes:
+      - ./qa-data/source-datasets:/data/source-datasets:ro
+      - ./qa-data/training-datasets:/data/training-datasets:ro
+      - ./qa-data/models:/data/models:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 6s
+      timeout: 4s
+      retries: 20
+
+  dataset-worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.dataset-worker
+    networks: [qa]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: model_trainer
+      POSTGRES_USER: worker_role
+      POSTGRES_PASSWORD: changeme
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: changeme
+      MINIO_BUCKET: artifacts
+      MINIO_SECURE: "false"
+      WORKER_KEY: dataset-worker-1
+    volumes:
+      - ./qa-data/source-datasets:/data/source-datasets:ro
+      - ./qa-data/training-datasets:/data/training-datasets
+      - ./qa-data/models:/data/models
+
+  training-worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.training-worker
+    networks: [qa]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: model_trainer
+      POSTGRES_USER: worker_role
+      POSTGRES_PASSWORD: changeme
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: changeme
+      MINIO_BUCKET: artifacts
+      MINIO_SECURE: "false"
+      WORKER_KEY: training-worker-1
+      TRAINING_DEVICE: cpu
+      WORKER_HEARTBEAT_INTERVAL_S: "20"
+    volumes:
+      - ./qa-data/source-datasets:/data/source-datasets:ro
+      - ./qa-data/training-datasets:/data/training-datasets
+      - ./qa-data/models:/data/models
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    networks: [qa]
+    ports:
+      - "8088:80"
+    depends_on:
+      backend: { condition: service_healthy }
+
+  scheduler:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.scheduler
+    networks: [qa]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: model_trainer
+      POSTGRES_USER: scheduler_role
+      POSTGRES_PASSWORD: changeme
+      SCHEDULER_TICK_INTERVAL_MS: "3000"
+      EXECUTION_STALE_TIMEOUT_S: "120"
+      MAX_TRAINING_ATTEMPTS: "3"
+      RETRY_BACKOFF_BASE_S: "20"
+
+  # Serves the base model .pt on the internal network so model-ingest can be tested
+  # deterministically (no external network). Requires model_download_allow_http/private=true.
+  assets:
+    image: nginx:alpine
+    networks: [qa]
+    volumes:
+      - ./qa-assets:/usr/share/nginx/html:ro

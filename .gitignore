@@ -1,0 +1,36 @@
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+deploy/docker-compose.data-roots.yml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+turbo-*.log
+
+# Docker volume mounts
+data/
+
+# Misc
+*.log
+npm-debug.log*

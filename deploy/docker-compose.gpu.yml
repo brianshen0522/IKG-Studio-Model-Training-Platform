@@ -1,0 +1,24 @@
+# GPU overlay for the training-worker (benchmark runs in the same worker).
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#   and set TRAINING_DEVICE=0 (or another CUDA index) in .env.
+#
+# Requires an NVIDIA GPU host with a recent driver + the NVIDIA Container Toolkit.
+# TORCH_CUDA picks the CUDA torch build; match it to your driver's CUDA (cu121/cu124/cu128…).
+# Default cu124 works with reasonably recent drivers.
+
+services:
+  training-worker:
+    build:
+      args:
+        TORCH_BACKEND: ${TORCH_CUDA:-cu124}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all

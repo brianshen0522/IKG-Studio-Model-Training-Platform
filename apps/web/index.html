@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Badged variant of the header cat: ikg-logo.svg is white-filled and vanishes on a
+         light tab strip, so the favicon carries the app background behind it.
+         PNGs are rasterised from the SVG by qa/gen-favicons.mjs; they exist because the
+         SVG alone leaves /favicon.ico — which browsers request implicitly — falling
+         through to the SPA's index.html and being cached as "this site has no icon".
+         The ?v= is not cosmetic: Chrome keys its favicon cache by icon URL and will not
+         re-fetch a path it has already resolved (including a past failure). Bump it
+         whenever the icon changes, or existing browsers keep the stale one. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=2" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180.png?v=2" />
+    <title>Model Training Platform</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

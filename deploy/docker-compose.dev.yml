@@ -1,0 +1,30 @@
+services:
+  backend:
+    build:
+      target: development
+    volumes:
+      - ../apps/api/src:/app/src:ro
+      - ../packages:/app/packages:ro
+    command: nest start --watch
+
+  nginx:
+    volumes:
+      - ../apps/web/dist:/usr/share/nginx/html:ro
+
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+# Dev only: allow host access to infra ports (prod keeps internal-network isolated).
+networks:
+  internal-network:
+    internal: false

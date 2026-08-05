@@ -1,0 +1,215 @@
+# Model Training Platform — production stack.
+#
+# Real service topology (matches the code, unlike the earlier draft):
+#   infra:    postgres, redis, minio
+#   init:     migrate (schema + role passwords), bootstrap (first admin)  [one-shot]
+#   runtime:  backend, web, scheduler, training-worker, dataset-worker
+# There is NO separate benchmark-worker / model-ingest-worker: benchmark runs inside
+# training-worker (benchmarker.py) and model-ingest inside dataset-worker.
+#
+# Config comes from deploy/.env (copy from env.example). Secrets are env vars — nothing
+# is hardcoded here. `tls-proxy` terminates TLS (self-signed, HTTP/2) and is the only
+# container publishing a host port; `web` is internal-only. Keep COOKIE_SECURE=true and
+# WEBAUTHN_ORIGIN=https://... (see README.md).
+#
+# GPU:  add `-f docker-compose.yml -f docker-compose.gpu.yml` and set TRAINING_DEVICE=0.
+#
+# DATA_ROOT mounts (one or more comma-separated host paths, read by backend/workers via
+# apps/api/src/common/roots.ts) are NOT declared here — a static `volumes:` entry can't
+# expand a variable into N mount lines. Always run via ./up.sh, which generates
+# docker-compose.data-roots.yml from DATA_ROOT and passes it as an extra -f overlay.
+
+networks:
+  public-network:
+  internal-network:
+    internal: true
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks: [internal-network]
+    volumes:
+      - ../data/postgres:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_MIGRATION_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_MIGRATION_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_MIGRATION_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks: [internal-network]
+    volumes:
+      - ../data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    networks: [internal-network]
+    volumes:
+      - ../data/minio:/data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot: apply pending migrations (idempotent, tracked in app.schema_migrations)
+  # then inject the per-service role passwords. Runs as the migration role.
+  migrate:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    networks: [internal-network]
+    env_file: [.env]
+    depends_on:
+      postgres: { condition: service_healthy }
+    command:
+      - sh
+      - -c
+      - node_modules/.bin/tsx packages/db/src/migrate.ts && node_modules/.bin/tsx scripts/set-db-roles.ts
+    restart: "no"
+
+  # One-shot: create the first admin if none exists (idempotent). Uses backend_role.
+  bootstrap:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    networks: [internal-network]
+    env_file: [.env]
+    environment:
+      POSTGRES_USER: backend_role
+      POSTGRES_PASSWORD: ${BACKEND_DB_PASSWORD}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    command: ["node_modules/.bin/tsx", "scripts/create-admin.ts"]
+    restart: "no"
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    restart: unless-stopped
+    networks: [internal-network]
+    env_file: [.env]
+    environment:
+      POSTGRES_USER: backend_role
+      POSTGRES_PASSWORD: ${BACKEND_DB_PASSWORD}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      bootstrap: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 4s
+      retries: 10
+
+  # Serves the SPA + proxies /api to backend. No published port — only tls-proxy
+  # reaches it, over internal-network.
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    restart: unless-stopped
+    networks: [internal-network]
+    depends_on:
+      backend: { condition: service_healthy }
+
+  # TLS termination (self-signed cert, HTTP/2) — the ONLY container that publishes a
+  # host port. See nginx/tls-proxy.conf + nginx/tls-entrypoint.sh.
+  tls-proxy:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.tls-proxy
+    restart: unless-stopped
+    networks: [public-network, internal-network]
+    ports:
+      - "${WEB_HTTPS_PORT:-443}:443"
+    volumes:
+      - tls-certs:/etc/nginx/tls
+    depends_on:
+      web: { condition: service_started }
+
+  scheduler:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.scheduler
+    restart: unless-stopped
+    networks: [internal-network]
+    env_file: [.env]
+    environment:
+      POSTGRES_USER: scheduler_role
+      POSTGRES_PASSWORD: ${SCHEDULER_DB_PASSWORD}
+      SCHEDULER_TICK_INTERVAL_MS: ${SCHEDULER_TICK_INTERVAL_MS:-3000}
+      EXECUTION_STALE_TIMEOUT_S: ${EXECUTION_STALE_TIMEOUT_S:-600}
+      MAX_TRAINING_ATTEMPTS: ${MAX_TRAINING_ATTEMPTS:-3}
+      RETRY_BACKOFF_BASE_S: ${RETRY_BACKOFF_BASE_S:-20}
+    depends_on:
+      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  training-worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.training-worker
+    restart: unless-stopped
+    # Also on public-network purely for egress: Ultralytics fetches official pretrained
+    # weights from GitHub, and internal-network is `internal: true` (no DNS, no route
+    # out). No ports are published, so nothing here becomes reachable from outside.
+    networks: [internal-network, public-network]
+    env_file: [.env]
+    # DATA_ROOT mount(s) come from docker-compose.data-roots.yml (generated by up.sh).
+    environment:
+      POSTGRES_USER: worker_role
+      POSTGRES_PASSWORD: ${WORKER_DB_PASSWORD}
+      WORKER_KEY: training-worker-1
+      TRAINING_DEVICE: ${TRAINING_DEVICE:-cpu}
+      WORKER_HEARTBEAT_INTERVAL_S: ${WORKER_HEARTBEAT_INTERVAL_S:-20}
+      # Downloaded official weights land here and are reused by later jobs. Pre-seed
+      # this directory to run fully air-gapped.
+      YOLO_WEIGHTS_CACHE: /opt/yolo-weights
+      YOLO_CONFIG_DIR: /opt/yolo-weights
+    volumes:
+      - yolo-weights:/opt/yolo-weights
+    depends_on:
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  dataset-worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.dataset-worker
+    restart: unless-stopped
+    # Egress only — model ingest downloads weights from a user-supplied URL.
+    networks: [internal-network, public-network]
+    env_file: [.env]
+    environment:
+      POSTGRES_USER: worker_role
+      POSTGRES_PASSWORD: ${WORKER_DB_PASSWORD}
+      WORKER_KEY: dataset-worker-1
+    depends_on:
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+volumes:
+  yolo-weights:
+  tls-certs:

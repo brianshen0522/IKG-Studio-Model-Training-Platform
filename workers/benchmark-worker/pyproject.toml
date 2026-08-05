@@ -1,0 +1,8 @@
+[project]
+name = "benchmark-worker"
+version = "0.0.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+dev-dependencies = []

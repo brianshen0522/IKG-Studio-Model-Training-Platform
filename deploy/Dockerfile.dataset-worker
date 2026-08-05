@@ -1,0 +1,8 @@
+# YOLO Trainer — dataset worker (scan + managed build + model ingest)
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+WORKDIR /app/workers/dataset-worker
+COPY workers/dataset-worker/ ./
+RUN uv sync
+# --no-sync: run from the already-installed venv without an implicit network sync at
+# startup (the worker runs on an internet-less internal network).
+CMD ["uv", "run", "--no-sync", "dataset-worker"]

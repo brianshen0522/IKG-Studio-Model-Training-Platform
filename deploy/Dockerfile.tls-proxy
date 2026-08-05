@@ -1,0 +1,8 @@
+# TLS-terminating reverse proxy — HTTP/2 + self-signed HTTPS, the only container that
+# publishes a host port. See nginx/tls-proxy.conf + nginx/tls-entrypoint.sh.
+FROM nginx:alpine
+RUN apk add --no-cache openssl
+COPY deploy/nginx/tls-proxy.conf /etc/nginx/conf.d/default.conf
+COPY deploy/nginx/tls-entrypoint.sh /tls-entrypoint.sh
+RUN chmod +x /tls-entrypoint.sh
+ENTRYPOINT ["/tls-entrypoint.sh"]
