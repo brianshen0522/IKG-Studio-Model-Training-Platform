@@ -33,7 +33,7 @@ SET row_security = off;
 -- Name: app; Type: SCHEMA; Schema: -; Owner: -
 --
 
-CREATE SCHEMA app;
+CREATE SCHEMA IF NOT EXISTS app;
 
 
 --
@@ -1254,328 +1254,260 @@ CREATE TABLE app.workers (
 -- Data for Name: artifact_types; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) FROM stdin;
-BEST_MODEL	Best Model	MODELS	TRAINING_JOB	.pt	f	0	t	2026-07-30 16:52:38.942581+00
-MODEL_FILE	Model File	MODELS	MODEL	.pt	f	1	t	2026-07-30 16:52:38.943324+00
-TRAIN_LOG	Training Log	LOGS	\N	.log	f	2	t	2026-07-30 16:52:38.944344+00
-RESULTS_CSV	Results CSV	METRICS	\N	.csv	t	3	t	2026-07-30 16:52:38.945065+00
-RESULTS_IMAGE	Results Image	CHARTS	\N	.png	t	4	t	2026-07-30 16:52:38.945913+00
-CONFUSION_MATRIX	Confusion Matrix	CHARTS	\N	.png	t	5	t	2026-07-30 16:52:38.946791+00
-PR_CURVE	PR Curve	CHARTS	\N	.png	t	6	t	2026-07-30 16:52:38.947622+00
-PRECISION_CURVE	Precision Curve	CHARTS	\N	.png	t	7	t	2026-07-30 16:52:38.94837+00
-RECALL_CURVE	Recall Curve	CHARTS	\N	.png	t	8	t	2026-07-30 16:52:38.949196+00
-F1_CURVE	F1 Curve	CHARTS	\N	.png	t	9	t	2026-07-30 16:52:38.949973+00
-VALIDATION_IMAGE	Validation Image	CHARTS	\N	.png	t	10	t	2026-07-30 16:52:38.95072+00
-ARGS_YAML	Args YAML	CONFIGURATION	\N	.yaml	t	11	t	2026-07-30 16:52:38.95149+00
-DATA_YAML	Data YAML	CONFIGURATION	DATASET_VERSION	.yaml	t	12	t	2026-07-30 16:52:38.952382+00
-BENCHMARK_METRICS	Benchmark Metrics	METRICS	BENCHMARK_EVALUATION	.json	t	13	t	2026-07-30 16:52:38.95332+00
-DATASET_MANIFEST	Dataset Manifest	REPORTS	DATASET_VERSION	.json	t	14	t	2026-07-30 16:52:38.954191+00
-ARTIFACT_MANIFEST	Artifact Manifest	REPORTS	\N	.json	t	15	t	2026-07-30 16:52:38.954909+00
-IMPORT_REPORT	Import Report	REPORTS	\N	.json	t	16	t	2026-07-30 16:52:38.955596+00
-OPENVINO_ZIP	OpenVINO Model (ZIP)	MODELS	MODEL_CONVERSION	.zip	f	0	t	2026-08-05 06:07:57.533037+00
-CONFUSION_MATRIX_NORMALIZED	Normalized Confusion Matrix	CHARTS	\N	.png	t	5	t	2026-08-05 06:07:57.774444+00
-TRAINING_OUTPUT	Training Output	OUTPUTS	\N	\N	t	17	t	2026-08-05 06:07:57.819267+00
-\.
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('BEST_MODEL', 'Best Model', 'MODELS', 'TRAINING_JOB', '.pt', 'f', '0', 't', '2026-07-30 16:52:38.942581+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('MODEL_FILE', 'Model File', 'MODELS', 'MODEL', '.pt', 'f', '1', 't', '2026-07-30 16:52:38.943324+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('TRAIN_LOG', 'Training Log', 'LOGS', NULL, '.log', 'f', '2', 't', '2026-07-30 16:52:38.944344+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('RESULTS_CSV', 'Results CSV', 'METRICS', NULL, '.csv', 't', '3', 't', '2026-07-30 16:52:38.945065+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('RESULTS_IMAGE', 'Results Image', 'CHARTS', NULL, '.png', 't', '4', 't', '2026-07-30 16:52:38.945913+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('CONFUSION_MATRIX', 'Confusion Matrix', 'CHARTS', NULL, '.png', 't', '5', 't', '2026-07-30 16:52:38.946791+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('PR_CURVE', 'PR Curve', 'CHARTS', NULL, '.png', 't', '6', 't', '2026-07-30 16:52:38.947622+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('PRECISION_CURVE', 'Precision Curve', 'CHARTS', NULL, '.png', 't', '7', 't', '2026-07-30 16:52:38.94837+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('RECALL_CURVE', 'Recall Curve', 'CHARTS', NULL, '.png', 't', '8', 't', '2026-07-30 16:52:38.949196+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('F1_CURVE', 'F1 Curve', 'CHARTS', NULL, '.png', 't', '9', 't', '2026-07-30 16:52:38.949973+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('VALIDATION_IMAGE', 'Validation Image', 'CHARTS', NULL, '.png', 't', '10', 't', '2026-07-30 16:52:38.95072+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('ARGS_YAML', 'Args YAML', 'CONFIGURATION', NULL, '.yaml', 't', '11', 't', '2026-07-30 16:52:38.95149+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('DATA_YAML', 'Data YAML', 'CONFIGURATION', 'DATASET_VERSION', '.yaml', 't', '12', 't', '2026-07-30 16:52:38.952382+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('BENCHMARK_METRICS', 'Benchmark Metrics', 'METRICS', 'BENCHMARK_EVALUATION', '.json', 't', '13', 't', '2026-07-30 16:52:38.95332+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('DATASET_MANIFEST', 'Dataset Manifest', 'REPORTS', 'DATASET_VERSION', '.json', 't', '14', 't', '2026-07-30 16:52:38.954191+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('ARTIFACT_MANIFEST', 'Artifact Manifest', 'REPORTS', NULL, '.json', 't', '15', 't', '2026-07-30 16:52:38.954909+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('IMPORT_REPORT', 'Import Report', 'REPORTS', NULL, '.json', 't', '16', 't', '2026-07-30 16:52:38.955596+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('OPENVINO_ZIP', 'OpenVINO Model (ZIP)', 'MODELS', 'MODEL_CONVERSION', '.zip', 'f', '0', 't', '2026-08-05 06:07:57.533037+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('CONFUSION_MATRIX_NORMALIZED', 'Normalized Confusion Matrix', 'CHARTS', NULL, '.png', 't', '5', 't', '2026-08-05 06:07:57.774444+00');
+INSERT INTO app.artifact_types (code, display_name, category, allowed_owner_type_code, mime_type_pattern, supports_preview, sort_order, enabled, created_at) VALUES ('TRAINING_OUTPUT', 'Training Output', 'OUTPUTS', NULL, NULL, 't', '17', 't', '2026-08-05 06:07:57.819267+00');
 
 
 --
 -- Data for Name: artifacts; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.artifacts (id, owner_type_code, owner_id, artifact_type_code, source_execution_id, status, bucket_name, object_key, filename, extension, mime_type, file_size_bytes, checksum_algorithm, checksum, is_primary, metadata, created_at, created_by_actor_type, created_by_actor_ref, verified_at, archived_at) FROM stdin;
-\.
 
 
 --
 -- Data for Name: audit_logs; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.audit_logs (id, occurred_at, actor_type, actor_user_id, actor_ref, action_code, resource_type_code, resource_id, result, correlation_id, parent_audit_id, before_snapshot, after_snapshot, diff, metadata, error_code, error_message, request_id, trace_id, ip_address, user_agent) FROM stdin;
-\.
 
 
 --
 -- Data for Name: audit_related_resources; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.audit_related_resources (audit_log_id, resource_type_code, resource_id, relation_code) FROM stdin;
-\.
 
 
 --
 -- Data for Name: benchmark_evaluations; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.benchmark_evaluations (id, benchmark_run_id, model_id, status, map50, map50_95, "precision", recall, f1, metrics, started_at, finished_at, failure_code, failure_message, created_at, training_dataset_id, stopped_at) FROM stdin;
-\.
 
 
 --
 -- Data for Name: benchmark_run_datasets; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.benchmark_run_datasets (benchmark_run_id, dataset_configuration_hash, sort_order, training_dataset_id) FROM stdin;
-\.
 
 
 --
 -- Data for Name: benchmark_run_models; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.benchmark_run_models (benchmark_run_id, model_id, model_checksum_snapshot, sort_order) FROM stdin;
-\.
 
 
 --
 -- Data for Name: benchmark_runs; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.benchmark_runs (id, name, description, status, evaluation_count, completed_count, failed_count, queued_at, started_at, finished_at, created_at, created_by_user_id, updated_at, stop_requested_at, stop_requested_by_user_id, stopped_at, cloned_from_run_id) FROM stdin;
-\.
 
 
 --
 -- Data for Name: cleanup_tasks; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.cleanup_tasks (id, owner_type_code, owner_id, job_execution_id, workspace_path, status, scheduled_at, started_at, finished_at, attempt_count, next_retry_at, deleted_size_bytes, error_code, error_message, created_at) FROM stdin;
-\.
 
 
 --
 -- Data for Name: dataset_types; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.dataset_types (id, name, parent_id, description, icon, color, sort_order, enabled, is_system, created_at, created_by_user_id, updated_at, updated_by_user_id, row_version, dataset_path, model_path, training_dataset_path) FROM stdin;
-\.
 
 
 --
 -- Data for Name: idempotency_keys; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.idempotency_keys (idempotency_key, user_id, operation_code, request_hash, resource_type_code, resource_id, response_status, response_body, created_at, expires_at) FROM stdin;
-\.
 
 
 --
 -- Data for Name: job_execution_gpus; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.job_execution_gpus (job_execution_id, worker_gpu_id, allocated_at, released_at) FROM stdin;
-\.
 
 
 --
 -- Data for Name: job_executions; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.job_executions (id, job_type, job_id, attempt_number, status, worker_id, assignment_token, queue_message_id, configuration_snapshot, configuration_hash, runtime_metadata, progress_percent, progress_message, assigned_at, claimed_at, started_at, heartbeat_at, finished_at, exit_code, error_code, error_message, correlation_id, created_at) FROM stdin;
-\.
 
 
 --
 -- Data for Name: model_conversions; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.model_conversions (id, model_id, status, args, artifact_id, failure_code, failure_message, requested_by_user_id, created_at, started_at, finished_at, row_version) FROM stdin;
-\.
 
 
 --
 -- Data for Name: model_ingest_tasks; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.model_ingest_tasks (id, source_type, status, requested_name, requested_version_label, requested_description, dataset_type_id, task_type, original_filename, source_url, expected_checksum, expected_size_bytes, temporary_object_key, progress_percent, progress_message, result_model_id, failure_code, failure_message, correlation_id, created_at, created_by_user_id, started_at, finished_at) FROM stdin;
-\.
 
 
 --
 -- Data for Name: models; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.models (id, name, version_label, description, dataset_type_id, task_type, source_type, status, relative_path, original_filename, file_size_bytes, checksum_algorithm, checksum, source_url, source_artifact_id, source_training_job_id, architecture_metadata, runtime_metadata, created_at, created_by_user_id, available_at, archived_at, archived_by_user_id, row_version, validation_summary, model_path) FROM stdin;
-\.
 
 
 --
 -- Data for Name: notifications; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.notifications (id, audit_log_id, recipient_user_id, severity, title, message, resource_type_code, resource_id, created_at, read_at, archived_at) FROM stdin;
-\.
 
 
 --
 -- Data for Name: outbox_events; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.outbox_events (id, event_type, aggregate_type_code, aggregate_id, payload, correlation_id, status, available_at, attempt_count, locked_at, locked_by, published_at, last_error, created_at) FROM stdin;
-\.
 
 
 --
 -- Data for Name: resource_types; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) FROM stdin;
-USER	User	t	t	t	t	2026-07-30 16:52:38.92371+00
-DATASET_TYPE	Dataset Type	f	t	f	t	2026-07-30 16:52:38.925684+00
-SOURCE_DATASET	Source Dataset	t	t	t	t	2026-07-30 16:52:38.927051+00
-SOURCE_DATASET_SCAN	Source Dataset Scan	t	t	f	t	2026-07-30 16:52:38.928417+00
-DATASET	Dataset	t	t	t	t	2026-07-30 16:52:38.929721+00
-MODEL	Model	t	t	t	t	2026-07-30 16:52:38.932419+00
-TRAINING_JOB	Training Job	t	t	t	t	2026-07-30 16:52:38.93367+00
-BENCHMARK_RUN	Benchmark Run	f	t	t	t	2026-07-30 16:52:38.934781+00
-BENCHMARK_EVALUATION	Benchmark Evaluation	t	t	f	t	2026-07-30 16:52:38.935915+00
-ARTIFACT	Artifact	f	t	f	t	2026-07-30 16:52:38.936902+00
-WORKER	Worker	f	t	f	t	2026-07-30 16:52:38.937902+00
-JOB_EXECUTION	Job Execution	t	t	f	t	2026-07-30 16:52:38.938806+00
-CLEANUP_TASK	Cleanup Task	f	t	f	t	2026-07-30 16:52:38.939633+00
-SYSTEM_SETTING	System Setting	f	t	f	t	2026-07-30 16:52:38.94051+00
-STORAGE_ROOT	Storage Root	f	t	t	t	2026-07-30 16:52:39.032588+00
-MODEL_INGEST	Model Ingest	f	t	t	t	2026-07-30 16:52:39.093335+00
-TRAINING_DATASET	Training Dataset	t	t	t	t	2026-07-30 16:52:39.277251+00
-DATASET_VERSION	Dataset Version	t	t	t	f	2026-07-30 16:52:38.931065+00
-MODEL_CONVERSION	Model Conversion	t	t	t	t	2026-08-05 06:07:57.531066+00
-\.
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('USER', 'User', 't', 't', 't', 't', '2026-07-30 16:52:38.92371+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('DATASET_TYPE', 'Dataset Type', 'f', 't', 'f', 't', '2026-07-30 16:52:38.925684+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('SOURCE_DATASET', 'Source Dataset', 't', 't', 't', 't', '2026-07-30 16:52:38.927051+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('SOURCE_DATASET_SCAN', 'Source Dataset Scan', 't', 't', 'f', 't', '2026-07-30 16:52:38.928417+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('DATASET', 'Dataset', 't', 't', 't', 't', '2026-07-30 16:52:38.929721+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('MODEL', 'Model', 't', 't', 't', 't', '2026-07-30 16:52:38.932419+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('TRAINING_JOB', 'Training Job', 't', 't', 't', 't', '2026-07-30 16:52:38.93367+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('BENCHMARK_RUN', 'Benchmark Run', 'f', 't', 't', 't', '2026-07-30 16:52:38.934781+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('BENCHMARK_EVALUATION', 'Benchmark Evaluation', 't', 't', 'f', 't', '2026-07-30 16:52:38.935915+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('ARTIFACT', 'Artifact', 'f', 't', 'f', 't', '2026-07-30 16:52:38.936902+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('WORKER', 'Worker', 'f', 't', 'f', 't', '2026-07-30 16:52:38.937902+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('JOB_EXECUTION', 'Job Execution', 't', 't', 'f', 't', '2026-07-30 16:52:38.938806+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('CLEANUP_TASK', 'Cleanup Task', 'f', 't', 'f', 't', '2026-07-30 16:52:38.939633+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('SYSTEM_SETTING', 'System Setting', 'f', 't', 'f', 't', '2026-07-30 16:52:38.94051+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('STORAGE_ROOT', 'Storage Root', 'f', 't', 't', 't', '2026-07-30 16:52:39.032588+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('MODEL_INGEST', 'Model Ingest', 'f', 't', 't', 't', '2026-07-30 16:52:39.093335+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('TRAINING_DATASET', 'Training Dataset', 't', 't', 't', 't', '2026-07-30 16:52:39.277251+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('DATASET_VERSION', 'Dataset Version', 't', 't', 't', 'f', '2026-07-30 16:52:38.931065+00');
+INSERT INTO app.resource_types (code, display_name, supports_artifacts, supports_audit, supports_notification, enabled, created_at) VALUES ('MODEL_CONVERSION', 'Model Conversion', 't', 't', 't', 't', '2026-08-05 06:07:57.531066+00');
 
 
 --
 -- Data for Name: source_dataset_classes; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.source_dataset_classes (id, scan_id, class_index, class_name, source, object_count) FROM stdin;
-\.
 
 
 --
 -- Data for Name: source_dataset_scan_issues; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.source_dataset_scan_issues (id, scan_id, severity, issue_code, image_relative_path, label_relative_path, line_number, details, created_at) FROM stdin;
-\.
 
 
 --
 -- Data for Name: source_dataset_scans; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.source_dataset_scans (id, source_dataset_id, status, scan_version, started_at, finished_at, image_count, label_count, matched_pair_count, missing_image_count, missing_label_count, invalid_label_count, ignored_file_count, class_count, classes_hash, content_hash, manifest_artifact_id, summary, error_code, error_message, created_at, created_by_user_id, empty_label_count, warning_count, error_count, classes_source) FROM stdin;
-\.
 
 
 --
 -- Data for Name: source_datasets; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.source_datasets (id, name, dataset_type_id, task_type, storage_root_id, relative_path, allow_subdirectories, status, latest_scan_id, event_version, created_at, created_by_user_id, updated_at, updated_by_user_id, archived_at, archived_by_user_id, images_relative_path, labels_relative_path, classes_file_relative_path, split_layout, notes, row_version, sub_path, manual_classes_override) FROM stdin;
-\.
 
 
 --
 -- Data for Name: storage_usage_snapshots; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.storage_usage_snapshots (id, storage_code, used_bytes, total_bytes, object_count, metadata, collected_at) FROM stdin;
-\.
 
 
 --
 -- Data for Name: system_settings; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) FROM stdin;
-workspace_retention_hours	24	1	Workspace file retention hours	f	2026-07-30 16:52:38.956258+00	\N	1
-worker_offline_timeout_seconds	90	1	Worker offline timeout in seconds	f	2026-07-30 16:52:38.957092+00	\N	1
-queue_wait_warning_minutes	30	1	Queue wait time before warning	f	2026-07-30 16:52:38.957816+00	\N	1
-storage_warning_threshold_percent	85	1	Storage usage warning threshold	f	2026-07-30 16:52:38.958682+00	\N	1
-auth_failed_login_threshold	5	1	Failed login attempts before lockout	f	2026-07-30 16:52:38.959435+00	\N	1
-auth_lockout_minutes	15	1	Account lockout duration in minutes	f	2026-07-30 16:52:38.960127+00	\N	1
-auth_session_idle_minutes	480	1	Session idle timeout in minutes	f	2026-07-30 16:52:38.960816+00	\N	1
-auth_session_absolute_hours	24	1	Session absolute timeout in hours	f	2026-07-30 16:52:38.961369+00	\N	1
-dataset_type_max_depth	8	1	Maximum dataset type tree depth	f	2026-07-30 16:52:39.03561+00	\N	1
-model_download_allow_http	false	1	Allow http:// (non-TLS) model download URLs	f	2026-07-30 16:52:39.094315+00	\N	1
-model_download_allow_private	false	1	Allow download URLs resolving to private/loopback networks (admin-controlled, SSRF risk)	f	2026-07-30 16:52:39.094315+00	\N	1
-model_min_size_bytes	1024	1	Minimum accepted model file size in bytes	f	2026-07-30 16:52:39.094315+00	\N	1
-managed_dataset_root	null	1	Global root path for built managed datasets (split/data.yaml output)	f	2026-07-30 16:52:39.14808+00	\N	1
-model_root	null	1	Global root path for all model files (best.pt dual-store target)	f	2026-07-30 16:52:39.149437+00	\N	1
-workspace_root	null	1	Global root path for training/benchmark temporary workspace	f	2026-07-30 16:52:39.150447+00	\N	1
-model_upload_max_size_bytes	2147483648	1	Maximum accepted browser-uploaded model file size in bytes (default 2 GiB)	f	2026-07-30 16:52:39.160843+00	\N	1
-storage_minio_limit_bytes	107374182400	1	Maximum allowed MinIO storage limit in bytes (0 for unlimited)	f	2026-08-05 06:07:57.353646+00	\N	1
-\.
+INSERT INTO app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) VALUES ('workspace_retention_hours', '24', '1', 'Workspace file retention hours', 'f', '2026-07-30 16:52:38.956258+00', NULL, '1');
+INSERT INTO app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) VALUES ('worker_offline_timeout_seconds', '90', '1', 'Worker offline timeout in seconds', 'f', '2026-07-30 16:52:38.957092+00', NULL, '1');
+INSERT INTO app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) VALUES ('queue_wait_warning_minutes', '30', '1', 'Queue wait time before warning', 'f', '2026-07-30 16:52:38.957816+00', NULL, '1');
+INSERT INTO app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) VALUES ('storage_warning_threshold_percent', '85', '1', 'Storage usage warning threshold', 'f', '2026-07-30 16:52:38.958682+00', NULL, '1');
+INSERT INTO app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) VALUES ('auth_failed_login_threshold', '5', '1', 'Failed login attempts before lockout', 'f', '2026-07-30 16:52:38.959435+00', NULL, '1');
+INSERT INTO app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) VALUES ('auth_lockout_minutes', '15', '1', 'Account lockout duration in minutes', 'f', '2026-07-30 16:52:38.960127+00', NULL, '1');
+INSERT INTO app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) VALUES ('auth_session_idle_minutes', '480', '1', 'Session idle timeout in minutes', 'f', '2026-07-30 16:52:38.960816+00', NULL, '1');
+INSERT INTO app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) VALUES ('auth_session_absolute_hours', '24', '1', 'Session absolute timeout in hours', 'f', '2026-07-30 16:52:38.961369+00', NULL, '1');
+INSERT INTO app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) VALUES ('dataset_type_max_depth', '8', '1', 'Maximum dataset type tree depth', 'f', '2026-07-30 16:52:39.03561+00', NULL, '1');
+INSERT INTO app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) VALUES ('model_download_allow_http', 'false', '1', 'Allow http:// (non-TLS) model download URLs', 'f', '2026-07-30 16:52:39.094315+00', NULL, '1');
+INSERT INTO app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) VALUES ('model_download_allow_private', 'false', '1', 'Allow download URLs resolving to private/loopback networks (admin-controlled, SSRF risk)', 'f', '2026-07-30 16:52:39.094315+00', NULL, '1');
+INSERT INTO app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) VALUES ('model_min_size_bytes', '1024', '1', 'Minimum accepted model file size in bytes', 'f', '2026-07-30 16:52:39.094315+00', NULL, '1');
+INSERT INTO app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) VALUES ('managed_dataset_root', 'null', '1', 'Global root path for built managed datasets (split/data.yaml output)', 'f', '2026-07-30 16:52:39.14808+00', NULL, '1');
+INSERT INTO app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) VALUES ('model_root', 'null', '1', 'Global root path for all model files (best.pt dual-store target)', 'f', '2026-07-30 16:52:39.149437+00', NULL, '1');
+INSERT INTO app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) VALUES ('workspace_root', 'null', '1', 'Global root path for training/benchmark temporary workspace', 'f', '2026-07-30 16:52:39.150447+00', NULL, '1');
+INSERT INTO app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) VALUES ('model_upload_max_size_bytes', '2147483648', '1', 'Maximum accepted browser-uploaded model file size in bytes (default 2 GiB)', 'f', '2026-07-30 16:52:39.160843+00', NULL, '1');
+INSERT INTO app.system_settings (setting_key, value, value_schema_version, description, is_secret, updated_at, updated_by_user_id, row_version) VALUES ('storage_minio_limit_bytes', '107374182400', '1', 'Maximum allowed MinIO storage limit in bytes (0 for unlimited)', 'f', '2026-08-05 06:07:57.353646+00', NULL, '1');
 
 
 --
 -- Data for Name: training_datasets; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.training_datasets (id, name, description, dataset_type_id, task_type, status, created_at, created_by_user_id, updated_at, updated_by_user_id, archived_at, row_version, source_dataset_ids, version_number, split_strategy, random_seed, train_ratio, val_ratio, test_ratio, storage_mode, train_count, val_count, test_count, class_count, classes_hash, configuration_hash, data_yaml_artifact_id, manifest_artifact_id, build_job_id, failure_code, failure_message, build_started_at, build_finished_at, ready_at, same_split_targets, relative_path, origin) FROM stdin;
-\.
 
 
 --
 -- Data for Name: training_job_dependencies; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.training_job_dependencies (id, job_id, depends_on_job_id, created_at, created_by_user_id) FROM stdin;
-\.
 
 
 --
 -- Data for Name: training_jobs; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.training_jobs (id, name, description, status, base_model_id, hyperparameters, configuration_version, configuration_hash, scheduled_at, queued_at, preparing_at, started_at, finished_at, locked_at, cancelled_at, cancelled_by_user_id, stop_requested_at, stop_requested_by_user_id, stopped_at, failure_code, failure_message, result_model_id, parent_job_id, resume_source_job_id, cloned_from_job_id, experiment_id, job_group_id, created_at, created_by_user_id, updated_at, updated_by_user_id, row_version, configuration_snapshot, submitted_at, failure_stage, training_dataset_id) FROM stdin;
-\.
 
 
 --
 -- Data for Name: user_sessions; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.user_sessions (id, user_id, session_token_hash, created_at, last_seen_at, idle_expires_at, absolute_expires_at, revoked_at, revoked_reason, ip_address, user_agent, created_password_version) FROM stdin;
-\.
 
 
 --
 -- Data for Name: users; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.users (id, username, display_name, email, password_hash, role, status, failed_login_count, locked_until, last_login_at, password_updated_at, created_at, created_by_user_id, updated_at, updated_by_user_id, disabled_at, disabled_by_user_id, must_change_password, row_version) FROM stdin;
-\.
 
 
 --
 -- Data for Name: webauthn_challenges; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.webauthn_challenges (id, challenge, flow_type, user_id, created_at, expires_at) FROM stdin;
-\.
 
 
 --
 -- Data for Name: webauthn_credentials; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.webauthn_credentials (id, user_id, credential_id, public_key, counter, transports, device_type, backed_up, name, aaguid, created_at, last_used_at) FROM stdin;
-\.
 
 
 --
 -- Data for Name: worker_gpus; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.worker_gpus (id, worker_id, gpu_uuid, gpu_index, name, memory_total_bytes, enabled, last_seen_at) FROM stdin;
-\.
 
 
 --
 -- Data for Name: workers; Type: TABLE DATA; Schema: app; Owner: -
 --
 
-COPY app.workers (id, worker_key, worker_type, hostname, status, capabilities, worker_version, container_image, python_version, torch_version, ultralytics_version, cuda_version, active_job_count, last_heartbeat_at, registered_at, updated_at, disabled_at) FROM stdin;
-\.
 
 
 --
