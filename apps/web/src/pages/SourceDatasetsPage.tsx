@@ -67,6 +67,11 @@ export function SourceDatasetsPage() {
     onSettled: () => qc.invalidateQueries({ queryKey: ['source-datasets'] }),
   });
 
+  const registerAllMut = useMutation({
+    mutationFn: (id: string) => apiSend('POST', `/source-datasets/types/${id}/register-all`, undefined, csrfToken),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['source-datasets'] }),
+  });
+
   const { isCollapsed, toggleGroup, toggleAll, anyCollapsed } = useTypeGroupCollapse('source', (data ?? []).map((g) => g.dataset_type_id));
 
   const goBack = () => {
@@ -137,6 +142,15 @@ export function SourceDatasetsPage() {
               onClick={() => rescanTypeMut.mutate(g.dataset_type_id)}
             >
               {g.reindexing || rescanTypeMut.isPending ? 'Reindexing…' : 'Rescan type'}
+            </button>
+            <button
+              className="btn btn-sm btn-ghost"
+              disabled={registerAllMut.isPending || g.folders.length === 0}
+              onClick={() => registerAllMut.mutate(g.dataset_type_id)}
+              title="Register every unregistered folder and rescan every already-registered one"
+            >
+              {registerAllMut.isPending && registerAllMut.variables === g.dataset_type_id
+                ? 'Scanning all…' : 'Scan & register all'}
             </button>
           </div>
 

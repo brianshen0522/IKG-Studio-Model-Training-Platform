@@ -514,6 +514,62 @@ export class SourceDatasetsService {
     return { dataset_type_id: datasetTypeId, correlation_id: correlationId };
   }
 
+  /**
+   * Scan & register everything: register every folder in the (already background-
+   * maintained) directory index that isn't a source dataset yet, and rescan every
+   * already-registered one that isn't currently SCANNING. Each folder is an
+   * independent worker job — reads the index table rather than walking disk, so this
+   * is just a burst of per-folder register/rescan calls, not itself a background job.
+   */
+  async registerAllType(datasetTypeId: string, actor: Actor) {
+    const correlationId = randomUUID();
+    await this.assertDatasetTypeUsable(this.db, datasetTypeId);
+
+    const entries = await this.db.selectFrom('dataset_directory_index')
+      .select('sub_path').where('dataset_type_id', '=', datasetTypeId).execute();
+    if (entries.length === 0) {
+      throw err(errorCode.SOURCE_DATASET_DATASET_TYPE_INVALID, 'no folders indexed yet for this dataset type — run a rescan first', 400);
+    }
+
+    const registered = new Map(
+      (await this.db.selectFrom('source_datasets')
+        .select(['id', 'sub_path', 'status', 'archived_at'])
+        .where('dataset_type_id', '=', datasetTypeId)
+        .where('archived_at', 'is', null)
+        .execute()
+      ).map((r) => [r.sub_path ?? '', r]),
+    );
+
+    const results: Array<{ sub_path: string; action: 'registered' | 'rescanned' | 'skipped'; source_dataset_id?: string; reason?: string }> = [];
+
+    for (const { sub_path: name } of entries) {
+      const reg = registered.get(name);
+      if (!reg) {
+        const row = await this.ensure({ dataset_type_id: datasetTypeId, sub_path: name }, actor);
+        results.push({ sub_path: name, action: 'registered', source_dataset_id: row.id });
+        continue;
+      }
+      if (reg.status === 'SCANNING') {
+        results.push({ sub_path: name, action: 'skipped', source_dataset_id: reg.id, reason: 'already scanning' });
+        continue;
+      }
+      try {
+        await this.rescan(reg.id, actor);
+        results.push({ sub_path: name, action: 'rescanned', source_dataset_id: reg.id });
+      } catch (e) {
+        results.push({ sub_path: name, action: 'skipped', source_dataset_id: reg.id, reason: e instanceof Error ? e.message : 'rescan failed' });
+      }
+    }
+
+    await this.auditService.append({
+      actorType: 'USER', actorUserId: actor.id, actionCode: 'DATASET_TYPE_REGISTER_ALL_REQUESTED',
+      resourceTypeCode: 'DATASET_TYPE', resourceId: datasetTypeId, result: 'SUCCESS', correlationId,
+      metadata: { folders: results.length, results },
+    });
+
+    return { dataset_type_id: datasetTypeId, dispatched: results.filter((r) => r.action !== 'skipped').length, results };
+  }
+
   async rescan(id: string, actor: Actor) {
     const correlationId = randomUUID();
     try {

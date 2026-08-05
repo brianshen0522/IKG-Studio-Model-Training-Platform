@@ -99,6 +99,12 @@ export class SourceDatasetsController {
     return this.service.rescanType(id, actorOf(req));
   }
 
+  @Post('types/:id/register-all')
+  @HttpCode(202)
+  registerAllType(@Param('id') id: string, @Req() req: Request) {
+    return this.service.registerAllType(id, actorOf(req));
+  }
+
   @Get(':id')
   get(@Param('id') id: string) {
     return this.service.findById(id);
