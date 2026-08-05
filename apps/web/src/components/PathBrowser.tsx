@@ -74,7 +74,7 @@ export function PathBrowser({ onSelect, onClose, mode, title, basePath }: PathBr
   const parts = rel ? rel.split('/') : [];
   const crumbs = [
     { label: base || '/', path: base },
-    ...parts.map((part, i) => ({ label: part, path: `${base}/${parts.slice(0, i + 1).join('/')}` })),
+    ...parts.map((part, i) => ({ label: part, path: [base, ...parts.slice(0, i + 1)].join('/').replace(/\/+/g, '/') })),
   ];
 
   const match = (n: string) => !search || n.toLowerCase().includes(search.toLowerCase());

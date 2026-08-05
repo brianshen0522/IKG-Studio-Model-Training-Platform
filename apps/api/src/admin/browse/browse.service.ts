@@ -6,7 +6,7 @@ import { type Kysely, sql } from 'kysely';
 import type { Database } from '@model-trainer/db';
 import { errorCode } from '@model-trainer/shared-types';
 import { DatasetTypesTreeService } from '../dataset-types/dataset-types-tree.service';
-import { normalizeRoot, nestedRootsWithin, getDataRoots, isWithinRoot } from '../../common/roots';
+import { normalizeRoot, nestedRootsWithin } from '../../common/roots';
 
 const err = (code: string, message: string, status: number) =>
   new HttpException({ error: { code, message, requestId: '' } }, status);
@@ -36,34 +36,27 @@ export class BrowseService {
   /**
    * Lists a directory by absolute path, for choosing the roots themselves (a dataset
    * type's paths do not exist yet at that point, so the type-scoped browse cannot be
-   * used). Confined to DATA_ROOT (one or more comma-separated paths) so this is a
-   * picker, not a filesystem viewer. With no requested path, opens the first root —
-   * a directory under any other root still works, just paste (or Browse into) it.
+   * used). Opens at `/` and browses anywhere on the host. Admin-only endpoint.
    */
   async browseAbsolute(requestedPath: string): Promise<BrowseResult> {
-    const roots = getDataRoots().map((r) => resolve(r));
-    const defaultRoot = roots[0] ?? '/';
-    const target = requestedPath ? resolve(requestedPath) : defaultRoot;
+    const target = requestedPath ? resolve(requestedPath) : '/';
 
-    const owningRoot = roots.find((r) => isWithinRoot(target, r)) ?? defaultRoot;
-    const safePath = roots.some((r) => isWithinRoot(target, r)) ? target : defaultRoot;
-
-    const empty: BrowseResult = { folders: [], files: [], currentPath: defaultRoot, basePath: defaultRoot, parent: null };
+    const empty: BrowseResult = { folders: [], files: [], currentPath: '/', basePath: '/', parent: null };
     try {
-      if (!statSync(safePath).isDirectory()) return empty;
+      if (!statSync(target).isDirectory()) return empty;
     } catch {
       return empty;
     }
 
     let parent: string | null = null;
-    if (safePath !== owningRoot) {
-      parent = resolve(safePath, '..');
+    if (target !== '/') {
+      parent = resolve(target, '..');
     }
 
     const folders: string[] = [];
     const files: string[] = [];
     try {
-      for (const entry of readdirSync(safePath, { withFileTypes: true })) {
+      for (const entry of readdirSync(target, { withFileTypes: true })) {
         if (entry.name.startsWith('.')) continue;
         if (entry.isSymbolicLink()) continue;
         if (entry.isDirectory()) folders.push(entry.name);
@@ -73,7 +66,7 @@ export class BrowseService {
 
     folders.sort();
     files.sort();
-    return { folders, files, currentPath: safePath, basePath: owningRoot, parent };
+    return { folders, files, currentPath: target, basePath: '/', parent };
   }
 
   /**
@@ -84,9 +77,8 @@ export class BrowseService {
    * from a worker, with a much worse error. This is the cheap check up front.
    *
    * Callers are expected to have already rejected malformed input client-side; this only
-   * answers questions that need the filesystem. Confined to DATA_ROOT (one or more
-   * comma-separated paths) for the same reason browseAbsolute is: it must not become a
-   * probe for the whole host.
+   * answers questions that need the filesystem. Admin-only endpoint, so no root
+   * confinement.
    *
    * Deliberately reports no writability verdict, unlike the equivalent check in Dataset
    * Manager. There, the process doing the check is also the one that writes. Here the
@@ -99,19 +91,15 @@ export class BrowseService {
     status: 'ok' | 'missing' | 'not_a_directory' | 'outside_root';
     basePath: string;
   } {
-    const roots = getDataRoots().map((r) => resolve(r));
     const target = resolve(requestedPath);
-    const basePath = roots.find((r) => isWithinRoot(target, r)) ?? roots[0] ?? '/';
-    if (!roots.some((r) => isWithinRoot(target, r))) return { status: 'outside_root', basePath };
-
     let stat;
     try {
       stat = statSync(target);
     } catch {
-      return { status: 'missing', basePath };
+      return { status: 'missing', basePath: '/' };
     }
-    if (!stat.isDirectory()) return { status: 'not_a_directory', basePath };
-    return { status: 'ok', basePath };
+    if (!stat.isDirectory()) return { status: 'not_a_directory', basePath: '/' };
+    return { status: 'ok', basePath: '/' };
   }
 
   /**
