@@ -8,4 +8,6 @@
 **/.turbo
 *.log
 deploy/qa-data
+deploy/data
+data/
 qa/
