@@ -18,6 +18,9 @@ type Actor = { id: string; role: string };
 type Exec = Kysely<Database>;
 /** How deep to look for dataset folders under a dataset type's root. */
 const DISCOVERY_MAX_DEPTH = 4;
+/** Cap the walk so a slow/remote root (e.g. a CIFS mount) can't hang the request. */
+const DISCOVERY_TIMEOUT_MS = 5000;
+const DISCOVERY_MAX_DIRS = 5000;
 
 /**
  * Walks `root` for directories that hold both `images/` and `labels/`, returning their
@@ -27,12 +30,18 @@ const DISCOVERY_MAX_DEPTH = 4;
  * `<type root>/check/<dataset>/{images,labels}`, so a depth-1 listing finds only
  * `check`, sees no images/labels inside it, and reports nothing at all. Descent stops
  * at a directory that is itself a dataset, and symlinks are never followed.
+ *
+ * Bounded: aborts the walk after a time/visit budget so a huge or unresponsive tree
+ * returns the folders found so far instead of blocking the API forever.
  */
 async function discoverDatasetFolders(root: string): Promise<string[]> {
   const out: string[] = [];
+  const deadline = Date.now() + DISCOVERY_TIMEOUT_MS;
+  let visited = 0;
 
   async function walk(dir: string, rel: string, depth: number): Promise<void> {
     if (depth > DISCOVERY_MAX_DEPTH) return;
+    if (++visited > DISCOVERY_MAX_DIRS || Date.now() > deadline) return;
     let entries: import('fs').Dirent[];
     try {
       entries = await fs.promises.readdir(dir, { withFileTypes: true });
