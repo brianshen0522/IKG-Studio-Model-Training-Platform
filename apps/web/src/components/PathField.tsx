@@ -115,6 +115,7 @@ export function PathField({
       <PathBrowser
         mode="folder"
         title={browserTitle}
+        basePath={value || undefined}
         onSelect={(p) => { onChange(p); void check(p); }}
         onClose={() => setBrowsing(false)}
       />
