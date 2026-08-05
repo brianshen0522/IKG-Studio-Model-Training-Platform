@@ -75,6 +75,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.api
+      network: host
     networks: [internal-network]
     env_file: [.env]
     depends_on:
@@ -90,6 +91,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.api
+      network: host
     networks: [internal-network]
     env_file: [.env]
     environment:
@@ -104,6 +106,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.api
+      network: host
     restart: unless-stopped
     networks: [internal-network]
     env_file: [.env]
@@ -127,6 +130,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.web
+      network: host
     restart: unless-stopped
     networks: [internal-network]
     depends_on:
@@ -138,6 +142,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.tls-proxy
+      network: host
     restart: unless-stopped
     networks: [public-network, internal-network]
     ports:
@@ -151,6 +156,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.scheduler
+      network: host
     restart: unless-stopped
     networks: [internal-network]
     env_file: [.env]
@@ -169,6 +175,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.training-worker
+      network: host
     restart: unless-stopped
     # Also on public-network purely for egress: Ultralytics fetches official pretrained
     # weights from GitHub, and internal-network is `internal: true` (no DNS, no route
@@ -197,6 +204,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.dataset-worker
+      network: host
     restart: unless-stopped
     # Egress only — model ingest downloads weights from a user-supplied URL.
     networks: [internal-network, public-network]
