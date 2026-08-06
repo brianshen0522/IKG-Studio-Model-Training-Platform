@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiGet, apiGetList } from '../lib/api';
 import { Modal } from './Modal';
@@ -271,7 +271,7 @@ export function CompareModelsDialog({ onClose }: { onClose: () => void }) {
           {isComparing ? (
             <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-sub)' }}>Loading results...</div>
           ) : (
-            <CompareChart results={results} modelName={modelName} selectedModelIds={selectedModelIds} />
+            <CompareChart results={results} modelName={modelName} selectedModelIds={selectedModelIds} datasetTypeName={datasetTypes.find((dt) => dt.id === datasetTypeId)?.name ?? ''} />
           )}
         </div>
       )}
@@ -279,15 +279,46 @@ export function CompareModelsDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
+type Row = { id: string; color: string; evaluation: CompareEvaluation | null };
+
+/** Builds a `model,mAP50,mAP50-95,precision,recall,f1,class,class_map50,...` CSV —
+ * one row per model, overall metrics plus every per-class mAP50 as extra columns. */
+function toCsv(rows: Row[], modelName: (id: string) => string, classNames: string[]): string {
+  const header = ['model', ...OVERALL_METRICS.map((m) => m.label), ...classNames.map((c) => `class:${c}`)];
+  const lines = [header.join(',')];
+  for (const r of rows) {
+    const e = r.evaluation;
+    const overall = OVERALL_METRICS.map((m) => (e ? (e[m.key] as number | null) ?? '' : ''));
+    const perClass = classNames.map((cn) => e?.per_class.find((pc) => pc.class_name === cn)?.map50 ?? '');
+    lines.push([JSON.stringify(modelName(r.id)), ...overall, ...perClass].join(','));
+  }
+  return lines.join('\n');
+}
+
+function downloadBlob(content: string | Blob, filename: string, type: string) {
+  const blob = content instanceof Blob ? content : new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+type ChartMode = 'bars' | 'radar';
+
 function CompareChart({
-  results, modelName, selectedModelIds,
+  results, modelName, selectedModelIds, datasetTypeName,
 }: {
   results: CompareResult[];
   modelName: (id: string) => string;
   selectedModelIds: string[];
+  datasetTypeName: string;
 }) {
+  const [mode, setMode] = useState<ChartMode>('radar');
+  const captureRef = useRef<HTMLDivElement>(null);
   const byId = useMemo(() => new Map(results.map((r) => [r.model_id, r])), [results]);
-  const rows = selectedModelIds.map((id, i) => ({
+  const rows: Row[] = selectedModelIds.map((id, i) => ({
     id, color: SERIES_COLORS[i % SERIES_COLORS.length], evaluation: byId.get(id)?.evaluation ?? null,
   }));
 
@@ -297,52 +328,179 @@ function CompareChart({
     return [...set].sort();
   }, [rows]);
 
+  async function downloadPng() {
+    if (!captureRef.current) return;
+    // No chart library and no html2canvas — serialize the DOM subtree into an SVG
+    // foreignObject and rasterize that, entirely with browser-native APIs.
+    const node = captureRef.current;
+    const rect = node.getBoundingClientRect();
+    const clone = node.cloneNode(true) as HTMLElement;
+    clone.style.background = 'var(--surface)';
+    const styleSheets = Array.from(document.styleSheets)
+      .map((s) => { try { return Array.from(s.cssRules).map((r) => r.cssText).join('\n'); } catch { return ''; } })
+      .join('\n');
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${rect.width}" height="${rect.height}">
+      <foreignObject width="100%" height="100%">
+        <div xmlns="http://www.w3.org/1999/xhtml" style="width:${rect.width}px;background:#152033;padding:16px;">
+          <style>${styleSheets}</style>
+          ${clone.outerHTML}
+        </div>
+      </foreignObject>
+    </svg>`;
+    const img = new Image();
+    const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = rect.width * 2;
+      canvas.height = rect.height * 2;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.scale(2, 2);
+        ctx.fillStyle = '#152033';
+        ctx.fillRect(0, 0, rect.width, rect.height);
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob((blob) => { if (blob) downloadBlob(blob, `compare-${datasetTypeName || 'models'}.png`, 'image/png'); });
+      }
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      <div>
-        <h4 style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--text-sub)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-          Overall Metrics
-        </h4>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {OVERALL_METRICS.map((metric) => (
-            <MetricGroup key={metric.key} label={metric.label} rows={rows} metric={metric.key} modelName={modelName} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+        <div className="chart-mode-toggle">
+          <button type="button" className={mode === 'radar' ? 'active' : ''} onClick={() => setMode('radar')}>Radar</button>
+          <button type="button" className={mode === 'bars' ? 'active' : ''} onClick={() => setMode('bars')}>Bars</button>
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => downloadBlob(toCsv(rows, modelName, classNames), `compare-${datasetTypeName || 'models'}.csv`, 'text/csv')}>
+            ⬇ CSV
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={downloadPng}>
+            ⬇ PNG
+          </button>
+        </div>
+      </div>
+
+      <div ref={captureRef} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        {mode === 'radar' ? (
+          <RadarChart rows={rows} modelName={modelName} />
+        ) : (
+          <div>
+            <h4 style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--text-sub)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+              Overall Metrics
+            </h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {OVERALL_METRICS.map((metric) => (
+                <MetricGroup key={metric.key} label={metric.label} rows={rows} metric={metric.key} modelName={modelName} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {classNames.length > 0 && (
+          <div>
+            <h4 style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--text-sub)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+              Per-Class mAP50
+            </h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: '280px', overflowY: 'auto', paddingRight: '4px' }}>
+              {classNames.map((cn) => (
+                <MetricGroup
+                  key={cn}
+                  label={cn}
+                  rows={rows.map((r) => ({
+                    ...r,
+                    evaluation: r.evaluation
+                      ? { ...r.evaluation, map50: r.evaluation.per_class.find((pc) => pc.class_name === cn)?.map50 ?? null }
+                      : null,
+                  }))}
+                  metric="map50"
+                  modelName={modelName}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', paddingTop: '4px', borderTop: '1px solid var(--border)' }}>
+          {rows.map((r) => (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-sub)' }}>
+              <span style={{ width: 9, height: 9, borderRadius: '50%', background: r.color, flexShrink: 0 }} />
+              {modelName(r.id)}
+              {!r.evaluation && ' (no data)'}
+            </div>
           ))}
         </div>
       </div>
+    </div>
+  );
+}
 
-      {classNames.length > 0 && (
-        <div>
-          <h4 style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--text-sub)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-            Per-Class mAP50
-          </h4>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: '280px', overflowY: 'auto', paddingRight: '4px' }}>
-            {classNames.map((cn) => (
-              <MetricGroup
-                key={cn}
-                label={cn}
-                rows={rows.map((r) => ({
-                  ...r,
-                  evaluation: r.evaluation
-                    ? { ...r.evaluation, map50: r.evaluation.per_class.find((pc) => pc.class_name === cn)?.map50 ?? null }
-                    : null,
-                }))}
-                metric="map50"
-                modelName={modelName}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+/** Radar/spider chart over the 5 overall metrics (mAP50, mAP50-95, Precision, Recall,
+ * F1) — one polygon per model, all metrics already 0-1 so a shared 0-1 radial scale
+ * works without normalization. Hand-drawn SVG: no charting library. */
+function RadarChart({ rows, modelName }: { rows: Row[]; modelName: (id: string) => string }) {
+  const size = 320;
+  const center = size / 2;
+  const radius = size / 2 - 46;
+  const axes = OVERALL_METRICS;
+  const angleFor = (i: number) => (Math.PI * 2 * i) / axes.length - Math.PI / 2;
+  const pointAt = (i: number, value: number) => {
+    const a = angleFor(i);
+    const r = radius * Math.max(0, Math.min(1, value));
+    return [center + r * Math.cos(a), center + r * Math.sin(a)] as const;
+  };
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', paddingTop: '4px', borderTop: '1px solid var(--border)' }}>
-        {rows.map((r) => (
-          <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-sub)' }}>
-            <span style={{ width: 9, height: 9, borderRadius: '50%', background: r.color, flexShrink: 0 }} />
-            {modelName(r.id)}
-            {!r.evaluation && ' (no data)'}
-          </div>
+  const rings = [0.25, 0.5, 0.75, 1];
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center' }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {rings.map((ring) => (
+          <polygon
+            key={ring}
+            points={axes.map((_, i) => pointAt(i, ring).join(',')).join(' ')}
+            fill="none"
+            stroke="var(--border)"
+            strokeWidth={1}
+          />
         ))}
-      </div>
+        {axes.map((_, i) => {
+          const [x, y] = pointAt(i, 1);
+          return <line key={i} x1={center} y1={center} x2={x} y2={y} stroke="var(--border)" strokeWidth={1} />;
+        })}
+        {axes.map((ax, i) => {
+          const [x, y] = pointAt(i, 1.16);
+          return (
+            <text key={ax.key} x={x} y={y} fill="var(--text-sub)" fontSize={11} textAnchor="middle" dominantBaseline="middle">
+              {ax.label}
+            </text>
+          );
+        })}
+        {rows.filter((r) => r.evaluation).map((r) => {
+          const pts = axes.map((ax, i) => pointAt(i, (r.evaluation![ax.key] as number | null) ?? 0));
+          return (
+            <polygon
+              key={r.id}
+              className="radar-series"
+              points={pts.map((p) => p.join(',')).join(' ')}
+              fill={r.color}
+              fillOpacity={0.16}
+              stroke={r.color}
+              strokeWidth={2}
+            />
+          );
+        })}
+        {rows.filter((r) => r.evaluation).map((r) =>
+          axes.map((ax, i) => {
+            const [x, y] = pointAt(i, (r.evaluation![ax.key] as number | null) ?? 0);
+            return <circle key={`${r.id}-${ax.key}`} cx={x} cy={y} r={3} fill={r.color} />;
+          }),
+        )}
+      </svg>
     </div>
   );
 }

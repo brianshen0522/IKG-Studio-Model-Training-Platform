@@ -3837,3 +3837,42 @@ td.nums {
 @keyframes barGrow {
   from { width: 0 !important; }
 }
+
+/* Bars/Radar toggle above the compare chart. */
+.chart-mode-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.chart-mode-toggle button {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--bg);
+  color: var(--text-sub);
+  border: none;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.chart-mode-toggle button + button {
+  border-left: 1px solid var(--border);
+}
+
+.chart-mode-toggle button.active {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* Radar chart series polygons draw in with a scale-from-center pop. */
+.radar-series {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: radarPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes radarPop {
+  from { transform: scale(0); opacity: 0; }
+}
