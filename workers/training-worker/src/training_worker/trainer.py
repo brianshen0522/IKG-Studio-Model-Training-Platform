@@ -328,19 +328,31 @@ class Trainer:
             return
         if getattr(self, "_live_log_artifact_id", None):
             return
-        artifact_id = str(uuid.uuid4())
         try:
             with psycopg.connect(self.cfg.pg_conninfo(), autocommit=True) as conn:
                 with conn.cursor() as cur:
+                    # Re-runs of the same job keep the fixed live key from the previous
+                    # run's artifacts row — the content is immutable (row can't be
+                    # updated) but the MinIO object behind it can. Reuse that row
+                    # instead of blind-inserting and tripping uq_artifacts_object.
                     cur.execute(
-                        "INSERT INTO artifacts (id, owner_type_code, owner_id, artifact_type_code, "
-                        "source_execution_id, status, bucket_name, object_key, filename, mime_type, "
-                        "file_size_bytes, checksum, is_primary, created_by_actor_type, created_by_actor_ref) "
-                        "VALUES (%s,'TRAINING_JOB',%s,'TRAIN_LOG',%s,'VERIFIED',%s,%s,'training.log',"
-                        "'text/plain',%s,%s,false,'WORKER',%s)",
-                        (artifact_id, job_id, job_execution_id, up["bucket"], up["object_key"],
-                         up["size"], up["checksum"], self.cfg.consumer),
+                        "SELECT id FROM artifacts WHERE bucket_name=%s AND object_key=%s",
+                        (up["bucket"], up["object_key"]),
                     )
+                    row = cur.fetchone()
+                    if row:
+                        artifact_id = row[0]
+                    else:
+                        artifact_id = str(uuid.uuid4())
+                        cur.execute(
+                            "INSERT INTO artifacts (id, owner_type_code, owner_id, artifact_type_code, "
+                            "source_execution_id, status, bucket_name, object_key, filename, mime_type, "
+                            "file_size_bytes, checksum, is_primary, created_by_actor_type, created_by_actor_ref) "
+                            "VALUES (%s,'TRAINING_JOB',%s,'TRAIN_LOG',%s,'VERIFIED',%s,%s,'training.log',"
+                            "'text/plain',%s,%s,false,'WORKER',%s)",
+                            (artifact_id, job_id, job_execution_id, up["bucket"], up["object_key"],
+                             up["size"], up["checksum"], self.cfg.consumer),
+                        )
             self._live_log_artifact_id = artifact_id
         except Exception as e:  # noqa: BLE001
             log.warn("live log artifact insert failed", training_job_id=job_id, error=str(e)[:200])

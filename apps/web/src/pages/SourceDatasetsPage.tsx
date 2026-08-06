@@ -176,7 +176,13 @@ export function SourceDatasetsPage() {
             <button
               className="btn btn-sm btn-ghost"
               disabled={registerAllMut.isPending || g.folders.length === 0}
-              onClick={() => registerAllMut.mutate({ id: g.dataset_type_id, subPaths: [...(selected[g.dataset_type_id] ?? [])] })}
+              onClick={() => {
+                const sel = selected[g.dataset_type_id]?.size ?? 0;
+                if (sel === 0 && g.folders.length > 10 && !window.confirm(
+                  `Scanning all ${g.folders.length} folders for "${g.name}" will take a long time. Continue?`,
+                )) return;
+                registerAllMut.mutate({ id: g.dataset_type_id, subPaths: [...(selected[g.dataset_type_id] ?? [])] });
+              }}
               title={
                 (selected[g.dataset_type_id]?.size ?? 0) > 0
                   ? 'Register/rescan only the selected folders'

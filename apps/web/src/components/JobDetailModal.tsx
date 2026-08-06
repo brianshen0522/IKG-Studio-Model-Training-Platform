@@ -53,7 +53,7 @@ const JOB_LABEL: Record<string, string> = {
   MODEL_CONVERSION: 'Model Conversion',
 };
 
-const ACTIVE = ['ASSIGNED', 'CLAIMED', 'PREPARING', 'RUNNING'];
+const ACTIVE = ['ASSIGNED', 'CLAIMED', 'PREPARING', 'RUNNING', 'STOPPING'];
 
 // Training/benchmark logs hang off their resource (training job / benchmark eval);
 // dataset-worker logs are JOB_EXECUTION-owned so MODEL_INGEST (supports_artifacts=false
@@ -219,13 +219,13 @@ export function JobDetailModal({ id, onClose }: { id: string; onClose: () => voi
           {data?.job_type === 'TRAINING' && data.resource_id && ACTIVE.includes(data.execution_status) && (
             <button
               className="btn btn-sm btn-danger"
-              disabled={stopMut.isPending}
+              disabled={stopMut.isPending || data.business_status === 'STOPPING'}
               onClick={() => {
                 if (!window.confirm(`Stop "${data.name}"? This cannot be undone.`)) return;
                 stopMut.mutate(data.resource_id);
               }}
             >
-              {stopMut.isPending ? 'Stopping…' : 'Stop'}
+              {stopMut.isPending || data.business_status === 'STOPPING' ? 'Stopping…' : 'Stop'}
             </button>
           )}
           {data?.job_type === 'TRAINING' && data.resource_id && !ACTIVE.includes(data.execution_status) && data.execution_status !== 'SUCCEEDED' && (
