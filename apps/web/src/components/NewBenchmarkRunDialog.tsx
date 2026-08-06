@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { apiGetList, apiSend } from '../lib/api';
+import { apiGetList, apiGetAll, apiSend } from '../lib/api';
 import { queryClient } from '../lib/queryClient';
 import { useAuthStore } from '../stores/auth';
 import { Modal } from './Modal';
@@ -57,17 +57,17 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
   // Fetch Dataset Types
   const { data: datasetTypesData } = useQuery({
     queryKey: ['dataset-types-options'],
-    queryFn: () => apiGetList<DatasetType>('/admin/dataset-types?size=100'),
+    queryFn: () => apiGetAll<DatasetType>('/admin/dataset-types'),
   });
-  const datasetTypes = datasetTypesData?.data ?? [];
+  const datasetTypes = datasetTypesData ?? [];
 
   // Fetch Models (all types, once) — a dataset type without an AVAILABLE model is
   // not a valid benchmark target, so the type dropdown disables those outright.
   const { data: allModelsData, isLoading: isLoadingModels } = useQuery({
     queryKey: ['models-all'],
-    queryFn: () => apiGetList<ModelOption>('/models?size=500'),
+    queryFn: () => apiGetAll<ModelOption>('/models'),
   });
-  const allModels = allModelsData?.data ?? [];
+  const allModels = allModelsData ?? [];
   const availableModels = allModels.filter((m) => m.status === 'AVAILABLE');
   const modelTypeIds = new Set(availableModels.map((m) => m.dataset_type_id));
 
@@ -76,11 +76,11 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
     queryKey: ['training-datasets-benchmark-options', datasetTypeId],
     enabled: !!datasetTypeId,
     queryFn: () =>
-      apiGetList<TrainingDatasetOption>(
-        `/training-datasets?size=200${datasetTypeId ? `&dataset_type_id=${datasetTypeId}` : ''}`,
+      apiGetAll<TrainingDatasetOption>(
+        `/training-datasets${datasetTypeId ? `?dataset_type_id=${datasetTypeId}` : ''}`,
       ),
   });
-  const readyDatasets = (datasetsData?.data ?? []).filter((d) => d.status === 'READY');
+  const readyDatasets = (datasetsData ?? []).filter((d) => d.status === 'READY');
 
   // Live worker + GPU info for the Device and Review steps.
   const { data: workersData } = useQuery({

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { apiGetList } from '../lib/api';
+import { apiGetList, apiGetAll } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { SkeletonLoader } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
@@ -63,15 +63,15 @@ export function BenchmarksPage() {
 
   const { data: datasetTypesData } = useQuery({
     queryKey: ['dt-filter'],
-    queryFn: () => apiGetList<RefOption>('/admin/dataset-types?size=100'),
+    queryFn: () => apiGetAll<RefOption>('/admin/dataset-types'),
   });
   const { data: modelsData } = useQuery({
     queryKey: ['model-filter'],
-    queryFn: () => apiGetList<RefOption>('/models?size=500'),
+    queryFn: () => apiGetAll<RefOption>('/models'),
   });
   const { data: datasetsData } = useQuery({
     queryKey: ['dataset-filter'],
-    queryFn: () => apiGetList<RefOption>('/training-datasets?size=500'),
+    queryFn: () => apiGetAll<RefOption>('/training-datasets'),
   });
 
   const runs = data?.data ?? [];
@@ -114,9 +114,9 @@ export function BenchmarksPage() {
     { value: 'CANCELLED', label: 'Cancelled' },
   ];
 
-  const allModels = (modelsData?.data ?? []);
-  const allDatasets = (datasetsData?.data ?? []);
-  const allTypes = (datasetTypesData?.data ?? []);
+  const allModels = (modelsData ?? []);
+  const allDatasets = (datasetsData ?? []);
+  const allTypes = (datasetTypesData ?? []);
 
   const modelTypeId = allModels.find((m) => m.id === modelFilter)?.dataset_type_id;
   const datasetTypeId = allDatasets.find((d) => d.id === datasetFilter)?.dataset_type_id;

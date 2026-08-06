@@ -684,20 +684,17 @@ export class SourceDatasetsService {
     return row;
   }
 
-  async getScanClasses(id: string, scanId: string, page: number, size: number) {
+  async getScanClasses(id: string, scanId: string) {
     await this.getScan(id, scanId);
-    const s = Math.min(Math.max(size, 1), 200);
-    const items = await this.db.selectFrom('source_dataset_classes').selectAll()
-      .where('scan_id', '=', scanId).orderBy('class_index').limit(s).offset((page - 1) * s).execute();
-    return items;
+    return this.db.selectFrom('source_dataset_classes').selectAll()
+      .where('scan_id', '=', scanId).orderBy('class_index').execute();
   }
 
-  async getScanIssues(id: string, scanId: string, page: number, size: number, severity?: string) {
+  async getScanIssues(id: string, scanId: string, severity?: string) {
     await this.getScan(id, scanId);
-    const s = Math.min(Math.max(size, 1), 200);
     let q = this.db.selectFrom('source_dataset_scan_issues').selectAll().where('scan_id', '=', scanId);
     if (severity) q = q.where('severity', '=', severity);
-    return q.orderBy('created_at').limit(s).offset((page - 1) * s).execute();
+    return q.orderBy('created_at').execute();
   }
 
   private readonly SAFE_REL_FILENAME = /^[a-zA-Z0-9._/-]+$/;

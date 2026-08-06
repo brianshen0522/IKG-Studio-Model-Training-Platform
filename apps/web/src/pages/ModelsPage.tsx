@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { apiGet, apiGetList, apiSend } from '../lib/api';
+import { apiGet, apiGetAll, apiSend } from '../lib/api';
 import { useAuthStore } from '../stores/auth';
 import { queryClient } from '../lib/queryClient';
 import { StatusBadge } from '../components/StatusBadge';
@@ -92,7 +92,7 @@ export function ModelsPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['models'],
     refetchInterval: 5000,
-    queryFn: () => apiGetList<Model>('/models?size=200'),
+    queryFn: () => apiGetAll<Model>('/models'),
   });
 
   const { data: types } = useQuery({
@@ -159,7 +159,7 @@ export function ModelsPage() {
 
   const scanning = scan.isPending || pendingScan !== null;
 
-  const models = data?.data ?? [];
+  const models = data ?? [];
   const byType = new Map<string, Model[]>();
   for (const m of models) {
     const list = byType.get(m.dataset_type_id) ?? [];

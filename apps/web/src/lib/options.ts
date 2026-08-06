@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { apiGet, apiGetList } from './api';
+import { apiGet, apiGetAll } from './api';
 
 const FRESH = { staleTime: 0, refetchOnMount: 'always' } as const;
 
@@ -35,7 +35,7 @@ export interface ModelOption {
 export function useTrainingDatasetOptions() {
   return useQuery({
     queryKey: ['training-dataset-options'],
-    queryFn: async () => (await apiGetList<DatasetOption>('/training-datasets?size=100')).data,
+    queryFn: () => apiGetAll<DatasetOption>('/training-datasets'),
     ...FRESH,
   });
 }
@@ -43,7 +43,7 @@ export function useTrainingDatasetOptions() {
 export function useModelOptions() {
   return useQuery({
     queryKey: ['model-options'],
-    queryFn: async () => (await apiGetList<ModelOption>('/models?size=100')).data,
+    queryFn: () => apiGetAll<ModelOption>('/models'),
     ...FRESH,
   });
 }
@@ -59,8 +59,7 @@ export interface SourceDatasetOption {
 export function useSourceDatasetOptions() {
   return useQuery({
     queryKey: ['source-dataset-options'],
-    queryFn: async () =>
-      (await apiGetList<SourceDatasetOption>('/source-datasets?size=100')).data,
+    queryFn: () => apiGetAll<SourceDatasetOption>('/source-datasets'),
     ...FRESH,
   });
 }

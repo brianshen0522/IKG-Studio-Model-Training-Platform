@@ -76,6 +76,24 @@ export async function apiGetList<T>(path: string): Promise<{ data: T[]; meta: Pa
   };
 }
 
+/**
+ * GET a list endpoint and page through until every row is collected. List
+ * endpoints cap `size` (100 or 200), so a single apiGetList call silently
+ * truncates when the row count exceeds the cap — ask for everything.
+ */
+export async function apiGetAll<T>(path: string): Promise<T[]> {
+  const all: T[] = [];
+  const sep = path.includes('?') ? '&' : '?';
+  let page = 1;
+  for (;;) {
+    const { data, meta } = await apiGetList<T>(`${path}${sep}page=${page}&size=100`);
+    all.push(...data);
+    if (data.length === 0 || (meta.totalPages ?? 0) <= page) break;
+    page += 1;
+  }
+  return all;
+}
+
 /** Perform a mutating request. The backend requires `csrfToken` on all writes. */
 export async function apiSend<T>(
   method: 'POST' | 'PATCH' | 'DELETE',

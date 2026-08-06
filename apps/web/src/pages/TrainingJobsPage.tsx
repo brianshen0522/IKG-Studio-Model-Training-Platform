@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { apiGetList } from '../lib/api';
+import { apiGetList, apiGetAll } from '../lib/api';
 import { useStopTrainingJob, useRetryTrainingJob, canStop, canRetry, stopLabel } from '../lib/trainingActions';
 import { StatusBadge } from '../components/StatusBadge';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -71,21 +71,21 @@ export function TrainingJobsPage() {
 
   const { data: datasetTypesData } = useQuery({
     queryKey: ['tj-dt-filter'],
-    queryFn: () => apiGetList<RefOption>('/admin/dataset-types?size=100'),
+    queryFn: () => apiGetAll<RefOption>('/admin/dataset-types'),
   });
   const { data: modelsData } = useQuery({
     queryKey: ['tj-model-filter'],
-    queryFn: () => apiGetList<RefOption>('/models?size=500'),
+    queryFn: () => apiGetAll<RefOption>('/models'),
   });
   const { data: datasetsData } = useQuery({
     queryKey: ['tj-dataset-filter'],
-    queryFn: () => apiGetList<RefOption>('/training-datasets?size=500'),
+    queryFn: () => apiGetAll<RefOption>('/training-datasets'),
   });
 
   const jobs = data?.data ?? [];
-  const allModels = modelsData?.data ?? [];
-  const allDatasets = datasetsData?.data ?? [];
-  const allTypes = datasetTypesData?.data ?? [];
+  const allModels = modelsData ?? [];
+  const allDatasets = datasetsData ?? [];
+  const allTypes = datasetTypesData ?? [];
 
   const modelName = allModels.find((m) => m.id === modelFilter)?.name;
   const datasetName = allDatasets.find((d) => d.id === datasetFilter)?.name;

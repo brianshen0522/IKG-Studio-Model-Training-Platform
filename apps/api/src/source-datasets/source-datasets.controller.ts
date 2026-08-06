@@ -143,17 +143,16 @@ export class SourceDatasetsController {
   @Get(':id/scans/:scanId/classes')
   getScanClasses(
     @Param('id') id: string, @Param('scanId') scanId: string,
-    @Query('page') page?: string, @Query('size') size?: string,
   ) {
-    return this.service.getScanClasses(id, scanId, intOr(page, 1), intOr(size, 50));
+    return this.service.getScanClasses(id, scanId);
   }
 
   @Get(':id/scans/:scanId/issues')
   getScanIssues(
     @Param('id') id: string, @Param('scanId') scanId: string,
-    @Query('page') page?: string, @Query('size') size?: string, @Query('severity') severity?: string,
+    @Query('severity') severity?: string,
   ) {
-    return this.service.getScanIssues(id, scanId, intOr(page, 1), intOr(size, 50), severity);
+    return this.service.getScanIssues(id, scanId, severity);
   }
 
   @Get(':id/samples')

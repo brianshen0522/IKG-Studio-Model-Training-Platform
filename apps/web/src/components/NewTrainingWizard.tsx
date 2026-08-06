@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, Children } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { apiGetList, apiSend, apiGet } from '../lib/api';
+import { apiGetList, apiGetAll, apiSend, apiGet } from '../lib/api';
 import { queryClient } from '../lib/queryClient';
 import { useAuthStore } from '../stores/auth';
 import { formatBytes, toParsableIso } from '../lib/format';
@@ -358,11 +358,11 @@ export function NewTrainingWizard({ onClose }: { onClose: () => void }) {
 
   const { data: datasetsData } = useQuery({
     queryKey: ['training-datasets-by-type', s.datasetTypeId],
-    queryFn: () => apiGetList<DatasetItem>(`/training-datasets?size=100&dataset_type_id=${s.datasetTypeId}`),
+    queryFn: () => apiGetAll<DatasetItem>(`/training-datasets?dataset_type_id=${s.datasetTypeId}`),
     enabled: !!s.datasetTypeId,
   });
 
-  const readyDatasets = datasetsData?.data?.filter((d) => d.status === 'READY') ?? [];
+  const readyDatasets = datasetsData?.filter((d) => d.status === 'READY') ?? [];
   const selDataset = readyDatasets.find((d) => d.id === s.datasetId);
   const selectedYoloVersion = YOLO_VERSIONS.find((v) => v.id === s.yoloVersion) ?? YOLO_VERSIONS[0];
   // v9/v10 only ship detection weights — an OBB dataset can't start from them.
@@ -370,7 +370,7 @@ export function NewTrainingWizard({ onClose }: { onClose: () => void }) {
 
   const { data: modelsData } = useQuery({
     queryKey: ['models-by-type', s.datasetTypeId],
-    queryFn: () => apiGetList<ModelItem>(`/models?size=100&dataset_type_id=${s.datasetTypeId}&status=AVAILABLE`),
+    queryFn: () => apiGetAll<ModelItem>(`/models?dataset_type_id=${s.datasetTypeId}&status=AVAILABLE`),
     enabled: !!s.datasetTypeId && s.modelSource === 'PRETRAINED',
   });
 
@@ -434,8 +434,8 @@ export function NewTrainingWizard({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, mutation.isPending]);
 
-  const selModel = modelsData?.data?.find((m) => m.id === s.baseModelId);
-  const modelsMatchTask = modelsData?.data?.filter((m) => !selDataset || m.task_type === selDataset.task_type) ?? [];
+  const selModel = modelsData?.find((m) => m.id === s.baseModelId);
+  const modelsMatchTask = modelsData?.filter((m) => !selDataset || m.task_type === selDataset.task_type) ?? [];
 
   // The weight the job will actually start from — an official Ultralytics name, or the
   // registered model's own file. Task type comes from the selected dataset.
@@ -618,14 +618,14 @@ export function NewTrainingWizard({ onClose }: { onClose: () => void }) {
                     <span>Registered model</span>
                     <select value={s.baseModelId ?? ''} onChange={(e) => { setS((prev) => ({ ...prev, baseModelId: e.target.value || null, cliOverride: null })); }}>
                       <option value="">Select model…</option>
-                      {(modelsData?.data ?? []).map((m) => (
+                      {(modelsData ?? []).map((m) => (
                         <option key={m.id} value={m.id}>
                           {m.name}{m.version_label ? ` (${m.version_label})` : ''} · {m.task_type} · {formatBytes(m.file_size_bytes)}
                         </option>
                       ))}
                     </select>
                   </label>
-                  {(modelsData?.data ?? []).length === 0 && (
+                  {(modelsData ?? []).length === 0 && (
                     <div className="warn-banner">
                       No AVAILABLE models for this dataset type yet. Import one under Models, or switch to an
                       official YOLO model above.

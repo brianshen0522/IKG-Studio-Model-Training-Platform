@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { apiGetList } from '../lib/api';
+import { apiGetAll } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { SkeletonLoader } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
@@ -43,11 +43,11 @@ export function TrainingDatasetsPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['training-datasets'],
     refetchInterval: 5000,
-    queryFn: () => apiGetList<TrainingDataset>('/training-datasets?size=50'),
+    queryFn: () => apiGetAll<TrainingDataset>('/training-datasets'),
   });
   const { data: types } = useDatasetTypeOptions();
 
-  const items = data?.data ?? [];
+  const items = data ?? [];
   const typeName = (id: string) => types?.find((t) => t.id === id)?.name ?? 'Unknown type';
   const byType = new Map<string, TrainingDataset[]>();
   for (const d of items) {
@@ -100,7 +100,7 @@ export function TrainingDatasetsPage() {
 
       {isLoading && <SkeletonLoader rows={5} variant="list" />}
       {error && <EmptyState type="error" message={(error as Error).message} />}
-      {data && data.data.length === 0 && (
+      {data && data.length === 0 && (
         <EmptyState message='No training datasets yet. Click "New Training Dataset" to build one from source datasets, or register an existing YOLO directory.' />
       )}
 

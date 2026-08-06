@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { apiGet, apiGetList } from '../lib/api';
+import { apiGet, apiGetAll } from '../lib/api';
 import { Modal } from './Modal';
 import { PrereqNotice } from './PrereqNotice';
 import { MultiModelCurves } from './TrainingCurves';
@@ -71,15 +71,15 @@ export function CompareModelsDialog({ onClose }: { onClose: () => void }) {
 
   const { data: datasetTypesData } = useQuery({
     queryKey: ['dataset-types-options'],
-    queryFn: () => apiGetList<DatasetType>('/admin/dataset-types?size=100'),
+    queryFn: () => apiGetAll<DatasetType>('/admin/dataset-types'),
   });
-  const datasetTypes = datasetTypesData?.data ?? [];
+  const datasetTypes = datasetTypesData ?? [];
 
   const { data: allModelsData, isLoading: isLoadingModels } = useQuery({
     queryKey: ['models-all'],
-    queryFn: () => apiGetList<ModelOption>('/models?size=500'),
+    queryFn: () => apiGetAll<ModelOption>('/models'),
   });
-  const availableModels = (allModelsData?.data ?? []).filter((m) => m.status === 'AVAILABLE');
+  const availableModels = (allModelsData ?? []).filter((m) => m.status === 'AVAILABLE');
   // A type needs at least 2 available models to compare — count per type up front so
   // the Step 0 dropdown can disable types that can never produce a comparison.
   const modelCountByType = new Map<string, number>();
