@@ -3815,3 +3815,25 @@ td.nums {
   color: var(--text);
   border-bottom-color: var(--blue);
 }
+
+/* Compare Models wizard — per-metric horizontal bars, one row per model. Track is
+   rendered at 0 width first then animates to its true value on mount/data-change so
+   comparing two runs feels alive rather than an instant static table. */
+.bar-track {
+  flex: 1;
+  height: 10px;
+  background: var(--surface-muted);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.6s cubic-bezier(0.34, 1.2, 0.4, 1);
+  animation: barGrow 0.6s cubic-bezier(0.34, 1.2, 0.4, 1);
+}
+
+@keyframes barGrow {
+  from { width: 0 !important; }
+}

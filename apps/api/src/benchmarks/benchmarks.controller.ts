@@ -45,6 +45,13 @@ export class BenchmarksController {
     };
   }
 
+  @Get('compare/models')
+  compare(@Query('dataset_type_id') datasetTypeId?: string, @Query('model_ids') modelIds?: string) {
+    if (!datasetTypeId) throw badRequest('dataset_type_id is required');
+    const ids = (modelIds ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    return this.service.compare(datasetTypeId, ids);
+  }
+
   @Get(':id')
   get(@Param('id') id: string) {
     return this.service.get(id);

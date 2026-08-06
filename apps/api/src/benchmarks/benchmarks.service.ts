@@ -256,6 +256,46 @@ export class BenchmarksService {
     return row;
   }
 
+  /**
+   * Compare view: for each requested model, the single most recent COMPLETED
+   * evaluation against any training dataset of the given dataset type. Read-only,
+   * front-end-only chart — nothing is created or persisted by this call.
+   */
+  async compare(datasetTypeId: string, modelIds: string[]) {
+    if (modelIds.length === 0) return { dataset_type_id: datasetTypeId, results: [] };
+    const rows = await this.db.selectFrom('benchmark_evaluations as be')
+      .innerJoin('models as m', 'm.id', 'be.model_id')
+      .innerJoin('training_datasets as td', 'td.id', 'be.training_dataset_id')
+      .select([
+        'be.id', 'be.model_id', 'be.training_dataset_id', 'be.map50', 'be.map50_95',
+        'be.precision', 'be.recall', 'be.f1', 'be.metrics', 'be.finished_at',
+        'm.name as model_name', 'td.name as training_dataset_name',
+      ])
+      .where('be.model_id', 'in', modelIds)
+      .where('td.dataset_type_id', '=', datasetTypeId)
+      .where('be.status', '=', 'COMPLETED')
+      .orderBy('be.finished_at', 'desc')
+      .execute();
+    // Rows are ordered newest-first; keep only the first (latest) row per model.
+    const latestByModel = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) if (!latestByModel.has(row.model_id)) latestByModel.set(row.model_id, row);
+    const results = modelIds.map((id) => {
+      const row = latestByModel.get(id);
+      if (!row) return { model_id: id, evaluation: null };
+      const detail = (row.metrics as { detail?: { per_class?: unknown } } | null)?.detail;
+      return {
+        model_id: id,
+        evaluation: {
+          id: row.id, model_name: row.model_name, training_dataset_id: row.training_dataset_id,
+          training_dataset_name: row.training_dataset_name, finished_at: row.finished_at,
+          map50: row.map50, map50_95: row.map50_95, precision: row.precision, recall: row.recall, f1: row.f1,
+          per_class: detail?.per_class ?? [],
+        },
+      };
+    });
+    return { dataset_type_id: datasetTypeId, results };
+  }
+
   async list(params: { page: number; size: number; status?: string }) {
     const size = Math.min(Math.max(params.size, 1), 200);
     const offset = (params.page - 1) * size;

@@ -5,6 +5,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { SkeletonLoader } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
 import { NewBenchmarkRunDialog } from '../components/NewBenchmarkRunDialog';
+import { CompareModelsDialog } from '../components/CompareModelsDialog';
 import { BenchmarkRunDetail } from './BenchmarkRunDetail';
 import { SearchableSelect, type SelectOption } from '../components/SearchableSelect';
 import { formatDate } from '../lib/format';
@@ -41,6 +42,7 @@ type SortOption = 'NEWEST' | 'OLDEST' | 'EVALUATIONS_DESC' | 'PROGRESS_DESC';
 
 export function BenchmarksPage() {
   const [showNew, setShowNew] = useState(false);
+  const [showCompare, setShowCompare] = useState(false);
   const [selectedId, setSelectedId] = useUrlParam('benchmarkRunId');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -199,6 +201,9 @@ export function BenchmarksPage() {
           </p>
         </div>
         <div className="spacer" />
+        <button className="btn btn-secondary" onClick={() => setShowCompare(true)}>
+          Compare Models
+        </button>
         <button className="btn btn-primary" onClick={() => setShowNew(true)}>
           + New Benchmark Run
         </button>
@@ -408,6 +413,7 @@ export function BenchmarksPage() {
       )}
 
       {showNew && <NewBenchmarkRunDialog onClose={() => setShowNew(false)} />}
+      {showCompare && <CompareModelsDialog onClose={() => setShowCompare(false)} />}
     </section>
   );
 }
