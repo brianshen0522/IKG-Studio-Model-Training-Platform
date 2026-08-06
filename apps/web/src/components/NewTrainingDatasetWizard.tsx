@@ -138,11 +138,25 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
   });
 
   // Query the registered source datasets rather than /by-type, which lists top-level
-  // folders on disk and so misses any source registered at a deeper sub_path.
+  // folders on disk and so misses any source registered at a deeper sub_path. The list
+  // endpoint caps each page at 100, so page through to the end — a type with many
+  // sources (or a big REGISTERED backlog) would otherwise silently truncate the
+  // selectable READY set.
   const { data: sources } = useQuery({
     queryKey: ['source-datasets', 'for-build', typeId],
-    queryFn: async () =>
-      (await apiGetList<SourceDataset>(`/source-datasets?size=200&dataset_type_id=${typeId}`)).data,
+    queryFn: async () => {
+      const all: SourceDataset[] = [];
+      let page = 1;
+      for (;;) {
+        const { data, meta } = await apiGetList<SourceDataset>(
+          `/source-datasets?size=100&page=${page}&dataset_type_id=${typeId}`,
+        );
+        all.push(...data);
+        if (data.length === 0 || (meta.totalPages ?? 0) <= page) break;
+        page += 1;
+      }
+      return all;
+    },
     staleTime: 0,
     enabled: origin === 'BUILT' && !!typeId,
   });
