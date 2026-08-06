@@ -69,7 +69,7 @@ if [ "$STATUS" -eq 0 ] && [ "${1:-}" = "up" ]; then
   echo "up.sh: checking training-worker GPU support (first torch import can take a while)…" >&2
   # Spinner so the wait doesn't look like a hang.
   docker compose -f docker-compose.yml $GPU_ARGS -f "$OVERLAY" exec -T training-worker \
-    uv run python -c "import torch; print(torch.cuda.is_available())" 2>/dev/null > /tmp/up-cuda-check &
+    uv run --no-sync python -c "import torch; print(torch.cuda.is_available())" 2>/dev/null > /tmp/up-cuda-check &
   CHECK_PID=$!
   i=0
   while kill -0 "$CHECK_PID" 2>/dev/null; do
