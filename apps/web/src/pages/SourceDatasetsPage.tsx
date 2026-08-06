@@ -87,6 +87,9 @@ export function SourceDatasetsPage() {
   const unselectAll = (typeId: string) => {
     setSelected((s) => { const next = { ...s }; delete next[typeId]; return next; });
   };
+  const selectAll = (typeId: string, subPaths: string[]) => {
+    setSelected((s) => ({ ...s, [typeId]: new Set(subPaths) }));
+  };
 
   const [search, setSearch] = useState<Record<string, string>>({});
 
@@ -168,11 +171,16 @@ export function SourceDatasetsPage() {
             >
               {g.reindexing || rescanTypeMut.isPending ? 'Reindexing…' : 'Rescan type'}
             </button>
-            {(selected[g.dataset_type_id]?.size ?? 0) > 0 && (
-              <button className="btn btn-sm btn-ghost" onClick={() => unselectAll(g.dataset_type_id)}>
-                Unselect all
-              </button>
-            )}
+            <button
+              className="btn btn-sm btn-ghost"
+              disabled={g.folders.length === 0}
+              onClick={() => selectAll(g.dataset_type_id, g.folders.map((f) => f.sub_path))}
+            >
+              Select all
+            </button>
+            <button className="btn btn-sm btn-ghost" disabled={g.folders.length === 0} onClick={() => unselectAll(g.dataset_type_id)}>
+              Deselect all
+            </button>
             <button
               className="btn btn-sm btn-ghost"
               disabled={registerAllMut.isPending || g.folders.length === 0}
