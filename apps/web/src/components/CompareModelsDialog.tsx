@@ -328,37 +328,25 @@ function CompareChart({
     return [...set].sort();
   }, [rows]);
 
+  // PNG export only covers the radar view: it's plain SVG (no <foreignObject>), so
+  // Chromium/WebKit will actually let toBlob() read it back. The bars view is HTML/CSS
+  // and would need foreignObject, which taints the canvas in every browser we support —
+  // not worth a canvas 2D re-implementation for a bar chart CSV already covers.
   async function downloadPng() {
-    if (!captureRef.current) return;
-    // No chart library and no html2canvas — serialize the DOM subtree into an SVG
-    // foreignObject and rasterize that, entirely with browser-native APIs.
-    const node = captureRef.current;
-    const rect = node.getBoundingClientRect();
-    const clone = node.cloneNode(true) as HTMLElement;
-    clone.style.background = 'var(--surface)';
-    const styleSheets = Array.from(document.styleSheets)
-      .map((s) => { try { return Array.from(s.cssRules).map((r) => r.cssText).join('\n'); } catch { return ''; } })
-      .join('\n');
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${rect.width}" height="${rect.height}">
-      <foreignObject width="100%" height="100%">
-        <div xmlns="http://www.w3.org/1999/xhtml" style="width:${rect.width}px;background:#152033;padding:16px;">
-          <style>${styleSheets}</style>
-          ${clone.outerHTML}
-        </div>
-      </foreignObject>
-    </svg>`;
+    if (mode !== 'radar') return;
+    const { svg, width, height } = radarSvgMarkup(rows, modelName);
     const img = new Image();
     const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(svgBlob);
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      canvas.width = rect.width * 2;
-      canvas.height = rect.height * 2;
+      canvas.width = width * 2;
+      canvas.height = height * 2;
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.scale(2, 2);
         ctx.fillStyle = '#152033';
-        ctx.fillRect(0, 0, rect.width, rect.height);
+        ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0);
         canvas.toBlob((blob) => { if (blob) downloadBlob(blob, `compare-${datasetTypeName || 'models'}.png`, 'image/png'); });
       }
@@ -379,7 +367,13 @@ function CompareChart({
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => downloadBlob(toCsv(rows, modelName, classNames), `compare-${datasetTypeName || 'models'}.csv`, 'text/csv')}>
             ⬇ CSV
           </button>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={downloadPng}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={mode !== 'radar'}
+            title={mode !== 'radar' ? 'Switch to Radar view to export PNG' : undefined}
+            onClick={downloadPng}
+          >
             ⬇ PNG
           </button>
         </div>
@@ -439,21 +433,66 @@ function CompareChart({
   );
 }
 
+const RADAR_SIZE = 320;
+const RADAR_CENTER = RADAR_SIZE / 2;
+const RADAR_RADIUS = RADAR_SIZE / 2 - 46;
+const radarAngleFor = (i: number) => (Math.PI * 2 * i) / OVERALL_METRICS.length - Math.PI / 2;
+const radarPointAt = (i: number, value: number) => {
+  const a = radarAngleFor(i);
+  const r = RADAR_RADIUS * Math.max(0, Math.min(1, value));
+  return [RADAR_CENTER + r * Math.cos(a), RADAR_CENTER + r * Math.sin(a)] as const;
+};
+
+/** Plain-SVG (no foreignObject) re-render of the radar chart plus a legend row, for PNG
+ * export — foreignObject taints the canvas on every browser, so the exported markup
+ * can't just be the on-screen chart. */
+function radarSvgMarkup(rows: Row[], modelName: (id: string) => string): { svg: string; width: number; height: number } {
+  const legendH = 24;
+  const width = RADAR_SIZE;
+  const height = RADAR_SIZE + legendH * Math.ceil(rows.length / 3);
+  const rings = [0.25, 0.5, 0.75, 1];
+  const parts: string[] = [];
+  for (const ring of rings) {
+    const pts = OVERALL_METRICS.map((_, i) => radarPointAt(i, ring).join(',')).join(' ');
+    parts.push(`<polygon points="${pts}" fill="none" stroke="#2a3652" stroke-width="1"/>`);
+  }
+  OVERALL_METRICS.forEach((_, i) => {
+    const [x, y] = radarPointAt(i, 1);
+    parts.push(`<line x1="${RADAR_CENTER}" y1="${RADAR_CENTER}" x2="${x}" y2="${y}" stroke="#2a3652" stroke-width="1"/>`);
+  });
+  OVERALL_METRICS.forEach((ax, i) => {
+    const [x, y] = radarPointAt(i, 1.16);
+    parts.push(`<text x="${x}" y="${y}" fill="#9ba9c3" font-size="11" text-anchor="middle" dominant-baseline="middle">${ax.label}</text>`);
+  });
+  for (const r of rows.filter((r) => r.evaluation)) {
+    const pts = OVERALL_METRICS.map((ax, i) => radarPointAt(i, (r.evaluation![ax.key] as number | null) ?? 0));
+    parts.push(`<polygon points="${pts.map((p) => p.join(',')).join(' ')}" fill="${r.color}" fill-opacity="0.16" stroke="${r.color}" stroke-width="2"/>`);
+    for (const [i, ax] of OVERALL_METRICS.entries()) {
+      const [x, y] = radarPointAt(i, (r.evaluation![ax.key] as number | null) ?? 0);
+      parts.push(`<circle cx="${x}" cy="${y}" r="3" fill="${r.color}"/>`);
+    }
+  }
+  rows.forEach((r, i) => {
+    const col = i % 3;
+    const row = Math.floor(i / 3);
+    const x = 12 + col * 105;
+    const y = RADAR_SIZE + 16 + row * legendH;
+    const label = modelName(r.id).slice(0, 14) + (r.evaluation ? '' : ' (no data)');
+    parts.push(`<circle cx="${x}" cy="${y - 4}" r="4" fill="${r.color}"/>`);
+    parts.push(`<text x="${x + 10}" y="${y}" fill="#9ba9c3" font-size="11">${label}</text>`);
+  });
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="${width}" height="${height}" fill="#152033"/>${parts.join('')}</svg>`;
+  return { svg, width, height };
+}
+
 /** Radar/spider chart over the 5 overall metrics (mAP50, mAP50-95, Precision, Recall,
  * F1) — one polygon per model, all metrics already 0-1 so a shared 0-1 radial scale
  * works without normalization. Hand-drawn SVG: no charting library. */
 function RadarChart({ rows, modelName }: { rows: Row[]; modelName: (id: string) => string }) {
-  const size = 320;
-  const center = size / 2;
-  const radius = size / 2 - 46;
+  const size = RADAR_SIZE;
+  const center = RADAR_CENTER;
   const axes = OVERALL_METRICS;
-  const angleFor = (i: number) => (Math.PI * 2 * i) / axes.length - Math.PI / 2;
-  const pointAt = (i: number, value: number) => {
-    const a = angleFor(i);
-    const r = radius * Math.max(0, Math.min(1, value));
-    return [center + r * Math.cos(a), center + r * Math.sin(a)] as const;
-  };
-
+  const pointAt = radarPointAt;
   const rings = [0.25, 0.5, 0.75, 1];
 
   return (
