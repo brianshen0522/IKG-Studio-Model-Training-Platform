@@ -41,7 +41,7 @@ class _TeeToFile(io.StringIO):
 
     def __init__(self, path: str) -> None:
         super().__init__()
-        self._fh = open(path, "w")
+        self._fh = open(path, "w", encoding="utf-8")
 
     def write(self, s: str) -> int:
         self._fh.write(s)

@@ -197,7 +197,7 @@ class Benchmarker:
                 project=work_dir, name="val", exist_ok=True, verbose=True, plots=True,
             )
         log_path = os.path.join(work_dir, "benchmark.log")
-        with open(log_path, "w") as f:
+        with open(log_path, "w", encoding="utf-8") as f:
             f.write(log_buf.getvalue())
         box = results.box
         p = _f(getattr(box, "mp", 0.0))

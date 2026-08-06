@@ -1,5 +1,8 @@
 # YOLO Trainer — ML worker (Ultralytics training + benchmark)
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+# C locale would make Python default to ASCII for file/stdout I/O, and Ultralytics
+# prints non-ASCII progress/tables — force UTF-8 everywhere in the worker.
+ENV PYTHONUTF8=1 PYTHONIOENCODING=utf-8
 # OpenCV (pulled in by ultralytics) needs these shared libs at runtime.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
