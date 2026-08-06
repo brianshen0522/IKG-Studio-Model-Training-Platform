@@ -1562,6 +1562,14 @@ tbody tr:hover {
 .folder-name {
   font-weight: 600;
   word-break: break-all;
+  flex: 1;
+}
+
+.folder-select-checkbox {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
 }
 
 .folder-images {

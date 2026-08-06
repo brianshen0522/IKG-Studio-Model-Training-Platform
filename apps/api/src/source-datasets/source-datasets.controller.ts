@@ -101,8 +101,12 @@ export class SourceDatasetsController {
 
   @Post('types/:id/register-all')
   @HttpCode(202)
-  registerAllType(@Param('id') id: string, @Req() req: Request) {
-    return this.service.registerAllType(id, actorOf(req));
+  registerAllType(
+    @Param('id') id: string,
+    @Body() body: { sub_paths?: string[] } = {},
+    @Req() req: Request,
+  ) {
+    return this.service.registerAllType(id, actorOf(req), body.sub_paths);
   }
 
   @Get(':id')

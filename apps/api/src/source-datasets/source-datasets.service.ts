@@ -515,18 +515,23 @@ export class SourceDatasetsService {
   }
 
   /**
-   * Scan & register everything: register every folder in the (already background-
-   * maintained) directory index that isn't a source dataset yet, and rescan every
-   * already-registered one that isn't currently SCANNING. Each folder is an
-   * independent worker job — reads the index table rather than walking disk, so this
-   * is just a burst of per-folder register/rescan calls, not itself a background job.
+   * Scan & register everything (or, if subPaths is given, just that subset): register
+   * every matching folder in the (already background-maintained) directory index that
+   * isn't a source dataset yet, and rescan every already-registered one that isn't
+   * currently SCANNING. Each folder is an independent worker job — reads the index
+   * table rather than walking disk, so this is just a burst of per-folder
+   * register/rescan calls, not itself a background job.
    */
-  async registerAllType(datasetTypeId: string, actor: Actor) {
+  async registerAllType(datasetTypeId: string, actor: Actor, subPaths?: string[]) {
     const correlationId = randomUUID();
     await this.assertDatasetTypeUsable(this.db, datasetTypeId);
 
-    const entries = await this.db.selectFrom('dataset_directory_index')
+    let entries = await this.db.selectFrom('dataset_directory_index')
       .select('sub_path').where('dataset_type_id', '=', datasetTypeId).execute();
+    if (subPaths && subPaths.length > 0) {
+      const wanted = new Set(subPaths);
+      entries = entries.filter((e) => wanted.has(e.sub_path));
+    }
     if (entries.length === 0) {
       throw err(errorCode.SOURCE_DATASET_DATASET_TYPE_INVALID, 'no folders indexed yet for this dataset type — run a rescan first', 400);
     }

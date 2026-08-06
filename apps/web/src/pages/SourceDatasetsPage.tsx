@@ -68,9 +68,25 @@ export function SourceDatasetsPage() {
   });
 
   const registerAllMut = useMutation({
-    mutationFn: (id: string) => apiSend('POST', `/source-datasets/types/${id}/register-all`, undefined, csrfToken),
-    onSettled: () => qc.invalidateQueries({ queryKey: ['source-datasets'] }),
+    mutationFn: ({ id, subPaths }: { id: string; subPaths?: string[] }) =>
+      apiSend('POST', `/source-datasets/types/${id}/register-all`, subPaths?.length ? { sub_paths: subPaths } : undefined, csrfToken),
+    onSettled: (_data, _err, vars) => {
+      qc.invalidateQueries({ queryKey: ['source-datasets'] });
+      if (vars) setSelected((s) => { const next = { ...s }; delete next[vars.id]; return next; });
+    },
   });
+
+  const [selected, setSelected] = useState<Record<string, Set<string>>>({});
+  const toggleSelected = (typeId: string, subPath: string) => {
+    setSelected((s) => {
+      const cur = new Set(s[typeId] ?? []);
+      if (cur.has(subPath)) cur.delete(subPath); else cur.add(subPath);
+      return { ...s, [typeId]: cur };
+    });
+  };
+  const unselectAll = (typeId: string) => {
+    setSelected((s) => { const next = { ...s }; delete next[typeId]; return next; });
+  };
 
   const { isCollapsed, toggleGroup, toggleAll, anyCollapsed } = useTypeGroupCollapse('source', (data ?? []).map((g) => g.dataset_type_id));
 
@@ -143,14 +159,26 @@ export function SourceDatasetsPage() {
             >
               {g.reindexing || rescanTypeMut.isPending ? 'Reindexing…' : 'Rescan type'}
             </button>
+            {(selected[g.dataset_type_id]?.size ?? 0) > 0 && (
+              <button className="btn btn-sm btn-ghost" onClick={() => unselectAll(g.dataset_type_id)}>
+                Unselect all
+              </button>
+            )}
             <button
               className="btn btn-sm btn-ghost"
               disabled={registerAllMut.isPending || g.folders.length === 0}
-              onClick={() => registerAllMut.mutate(g.dataset_type_id)}
-              title="Register every unregistered folder and rescan every already-registered one"
+              onClick={() => registerAllMut.mutate({ id: g.dataset_type_id, subPaths: [...(selected[g.dataset_type_id] ?? [])] })}
+              title={
+                (selected[g.dataset_type_id]?.size ?? 0) > 0
+                  ? 'Register/rescan only the selected folders'
+                  : 'Register every unregistered folder and rescan every already-registered one'
+              }
             >
-              {registerAllMut.isPending && registerAllMut.variables === g.dataset_type_id
-                ? 'Scanning all…' : 'Scan & register all'}
+              {registerAllMut.isPending && registerAllMut.variables?.id === g.dataset_type_id
+                ? 'Scanning…'
+                : (selected[g.dataset_type_id]?.size ?? 0) > 0
+                  ? `Scan & register selected (${selected[g.dataset_type_id]!.size})`
+                  : 'Scan & register all'}
             </button>
           </div>
 
@@ -172,6 +200,13 @@ export function SourceDatasetsPage() {
                     }}
                   >
                     <div className="folder-card-head">
+                      <input
+                        type="checkbox"
+                        className="folder-select-checkbox"
+                        checked={selected[g.dataset_type_id]?.has(f.sub_path) ?? false}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={() => toggleSelected(g.dataset_type_id, f.sub_path)}
+                      />
                       <span className="folder-name">{f.sub_path}</span>
                       {f.registered && f.status && <StatusBadge status={f.status} />}
                     </div>
