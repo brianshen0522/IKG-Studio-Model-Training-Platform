@@ -20,6 +20,7 @@ interface TrainingDatasetOption {
   status: string;
   train_count?: string;
   val_count?: string;
+  test_count?: string;
   class_count?: number;
 }
 
@@ -31,9 +32,10 @@ interface ModelOption {
   task_type: string;
   source_type: string;
   status: string;
+  architecture_metadata?: Record<string, unknown> | null;
 }
 
-const STEPS = ['Dataset Type & Name', 'Select Models', 'Select Datasets', 'Device', 'Matrix & Review'];
+const STEPS = ['Dataset Type & Name', 'Select Model', 'Select Dataset', 'Device', 'Review'];
 
 export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
   const csrfToken = useAuthStore((s) => s.csrfToken);
@@ -43,8 +45,8 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
   const [datasetTypeId, setDatasetTypeId] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
-  const [selectedDatasetIds, setSelectedDatasetIds] = useState<string[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
   const [device, setDevice] = useState('');
   const [deviceTouched, setDeviceTouched] = useState(false);
 
@@ -92,8 +94,8 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
       const created = await apiSend<{ id: string }>('POST', '/benchmark-runs', {
         name,
         description: description || undefined,
-        model_ids: selectedModelIds,
-        training_dataset_ids: selectedDatasetIds,
+        model_ids: selectedModelId ? [selectedModelId] : [],
+        training_dataset_ids: selectedDatasetId ? [selectedDatasetId] : [],
         device,
       }, csrfToken);
 
@@ -105,29 +107,6 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
     },
   });
 
-  const toggleItem = (list: string[], id: string) =>
-    list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
-
-  const toggleAllModels = () => {
-    const filteredIds = filteredModels.map((m) => m.id);
-    const allSelected = filteredIds.every((id) => selectedModelIds.includes(id));
-    if (allSelected) {
-      setSelectedModelIds((prev) => prev.filter((id) => !filteredIds.includes(id)));
-    } else {
-      setSelectedModelIds((prev) => Array.from(new Set([...prev, ...filteredIds])));
-    }
-  };
-
-  const toggleAllDatasets = () => {
-    const filteredIds = filteredDatasets.map((d) => d.id);
-    const allSelected = filteredIds.every((id) => selectedDatasetIds.includes(id));
-    if (allSelected) {
-      setSelectedDatasetIds((prev) => prev.filter((id) => !filteredIds.includes(id)));
-    } else {
-      setSelectedDatasetIds((prev) => Array.from(new Set([...prev, ...filteredIds])));
-    }
-  };
-
   const filteredModels = availableModels
     .filter((m) => m.dataset_type_id === datasetTypeId)
     .filter(
@@ -136,14 +115,14 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
         (m.version_label && m.version_label.toLowerCase().includes(modelSearch.toLowerCase())),
     );
 
-  const filteredDatasets = readyDatasets.filter((d) =>
-    d.name.toLowerCase().includes(datasetSearch.toLowerCase()),
-  );
+  const filteredDatasets = readyDatasets
+    .filter((d) => d.dataset_type_id === datasetTypeId)
+    .filter((d) => d.name.toLowerCase().includes(datasetSearch.toLowerCase()));
 
   const stepDone = (i: number) => {
     if (i === 0) return datasetTypeId !== '' && name.trim() !== '';
-    if (i === 1) return selectedModelIds.length > 0;
-    if (i === 2) return selectedDatasetIds.length > 0;
+    if (i === 1) return !!selectedModelId;
+    if (i === 2) return !!selectedDatasetId;
     if (i === 3) return deviceTouched;
     return false;
   };
@@ -187,7 +166,7 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
             {step === STEPS.length - 1 && (
               <button
                 className="btn btn-primary"
-                disabled={mutation.isPending || selectedModelIds.length === 0 || selectedDatasetIds.length === 0}
+                disabled={mutation.isPending || !selectedModelId || !selectedDatasetId}
                 onClick={() => mutation.mutate()}
               >
                 {mutation.isPending ? 'Submitting...' : 'Create & Launch Benchmark'}
@@ -232,8 +211,8 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
               value={datasetTypeId}
               onChange={(e) => {
                 setDatasetTypeId(e.target.value);
-                setSelectedModelIds([]);
-                setSelectedDatasetIds([]);
+                setSelectedModelId(null);
+                setSelectedDatasetId(null);
               }}
             >
               <option value="">-- Select Dataset Type --</option>
@@ -273,14 +252,14 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      {/* STEP 1: Select Models */}
+      {/* STEP 1: Select Model */}
       {step === 1 && (
         <div>
           {!datasetTypeId ? (
             <PrereqNotice message="Select a Dataset Type in Step 1 first — models and datasets are loaded per type." onGoToStep={() => setStep(0)} />
           ) : (
             <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
                 <input
                   type="text"
                   placeholder="🔍 Search models..."
@@ -288,11 +267,6 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
                   onChange={(e) => setModelSearch(e.target.value)}
                   style={{ width: '240px', padding: '7px 12px', fontSize: '13px', background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}
                 />
-                <button className="btn btn-sm btn-secondary" onClick={toggleAllModels}>
-                  {filteredModels.every((m) => selectedModelIds.includes(m.id)) && filteredModels.length > 0
-                    ? 'Deselect All'
-                    : 'Select All Filtered'}
-                </button>
               </div>
 
               {isLoadingModels ? (
@@ -301,41 +275,44 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
                 <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-sub)' }}>No available models found for this Dataset Type.</div>
               ) : (
                 <div className="checklist" style={{ maxHeight: '280px', overflowY: 'auto' }}>
-                  {filteredModels.map((m) => (
-                    <label key={m.id} className="check-row" style={{ display: 'flex', alignItems: 'center', padding: '8px 12px' }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedModelIds.includes(m.id)}
-                        onChange={() => setSelectedModelIds((prev) => toggleItem(prev, m.id))}
-                      />
-                      <div style={{ marginLeft: '10px', flex: 1 }}>
-                        <div style={{ fontWeight: 500, fontSize: '13px', color: 'var(--text)' }}>
-                          {m.name} {m.version_label ? `(${m.version_label})` : ''}
+                  {filteredModels.map((m) => {
+                    const arch = m.architecture_metadata ?? {};
+                    const yoloV = arch.yolo_version as string | undefined;
+                    const yoloS = arch.yolo_size as string | undefined;
+                    return (
+                      <label key={m.id} className="check-row" style={{ display: 'flex', alignItems: 'center', padding: '8px 12px' }}>
+                        <input
+                          type="radio"
+                          checked={selectedModelId === m.id}
+                          onChange={() => setSelectedModelId(m.id)}
+                        />
+                        <div style={{ marginLeft: '10px', flex: 1 }}>
+                          <div style={{ fontWeight: 500, fontSize: '13px', color: 'var(--text)' }}>
+                            {m.name} {m.version_label ? `(${m.version_label})` : ''}
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-sub)' }}>
+                            {yoloV || yoloS ? `${yoloV ?? ''}${yoloV && yoloS ? ' · ' : ''}${yoloS ?? ''} · ` : ''}
+                            {m.task_type} · {m.source_type}
+                          </div>
                         </div>
-                        <div style={{ fontSize: '11px', color: 'var(--text-sub)' }}>
-                          Source: {m.source_type} · Task: {m.task_type}
-                        </div>
-                      </div>
-                    </label>
-                  ))}
+                      </label>
+                    );
+                  })}
                 </div>
               )}
-              <div className="hint" style={{ marginTop: '8px' }}>
-                Selected {selectedModelIds.length} model(s)
-              </div>
             </>
           )}
         </div>
       )}
 
-      {/* STEP 2: Select Datasets */}
+      {/* STEP 2: Select Dataset */}
       {step === 2 && (
         <div>
           {!datasetTypeId ? (
             <PrereqNotice message="Select a Dataset Type in Step 1 first — models and datasets are loaded per type." onGoToStep={() => setStep(0)} />
           ) : (
             <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
                 <input
                   type="text"
                   placeholder="🔍 Search datasets..."
@@ -343,11 +320,6 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
                   onChange={(e) => setDatasetSearch(e.target.value)}
                   style={{ width: '240px', padding: '7px 12px', fontSize: '13px', background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}
                 />
-                <button className="btn btn-sm btn-secondary" onClick={toggleAllDatasets}>
-                  {filteredDatasets.every((d) => selectedDatasetIds.includes(d.id)) && filteredDatasets.length > 0
-                    ? 'Deselect All'
-                    : 'Select All Filtered'}
-                </button>
               </div>
 
               {isLoadingDatasets ? (
@@ -356,26 +328,28 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
                 <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-sub)' }}>No READY datasets found for this Dataset Type.</div>
               ) : (
                 <div className="checklist" style={{ maxHeight: '280px', overflowY: 'auto' }}>
-                  {filteredDatasets.map((d) => (
-                    <label key={d.id} className="check-row" style={{ display: 'flex', alignItems: 'center', padding: '8px 12px' }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedDatasetIds.includes(d.id)}
-                        onChange={() => setSelectedDatasetIds((prev) => toggleItem(prev, d.id))}
-                      />
-                      <div style={{ marginLeft: '10px', flex: 1 }}>
-                        <div style={{ fontWeight: 500, fontSize: '13px', color: 'var(--text)' }}>{d.name}</div>
-                        <div style={{ fontSize: '11px', color: 'var(--text-sub)' }}>
-                          Task: {d.task_type} {d.class_count != null ? `· ${d.class_count} classes` : ''}
+                  {filteredDatasets.map((d) => {
+                    const tr = Number(d.train_count ?? 0);
+                    const va = Number(d.val_count ?? 0);
+                    const te = Number(d.test_count ?? 0);
+                    return (
+                      <label key={d.id} className="check-row" style={{ display: 'flex', alignItems: 'center', padding: '8px 12px' }}>
+                        <input
+                          type="radio"
+                          checked={selectedDatasetId === d.id}
+                          onChange={() => setSelectedDatasetId(d.id)}
+                        />
+                        <div style={{ marginLeft: '10px', flex: 1 }}>
+                          <div style={{ fontWeight: 500, fontSize: '13px', color: 'var(--text)' }}>{d.name}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-sub)' }}>
+                            {tr + va + te} images (T{tr}/V{va}/Te{te}){d.class_count != null ? ` · ${d.class_count} classes` : ''} · {d.task_type}
+                          </div>
                         </div>
-                      </div>
-                    </label>
-                  ))}
+                      </label>
+                    );
+                  })}
                 </div>
               )}
-              <div className="hint" style={{ marginTop: '8px' }}>
-                Selected {selectedDatasetIds.length} training dataset(s)
-              </div>
             </>
           )}
         </div>
@@ -399,7 +373,7 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      {/* STEP 4: Matrix & Review */}
+      {/* STEP 4: Review */}
       {step === 4 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {!datasetTypeId ? (
@@ -409,51 +383,11 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
           <div style={{ background: 'var(--surface-muted)', padding: '12px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', fontSize: '13px' }}>
             <div><strong>Run Name:</strong> {name}</div>
             {description && <div style={{ color: 'var(--text-sub)', marginTop: '4px' }}>{description}</div>}
-            <div style={{ marginTop: '8px', display: 'flex', gap: '16px' }}>
-              <div><strong>Models:</strong> {selectedModelIds.length}</div>
-              <div><strong>Datasets:</strong> {selectedDatasetIds.length}</div>
+            <div style={{ marginTop: '8px' }}>
+              <div><strong>Model:</strong> {availableModels.find((m) => m.id === selectedModelId)?.name ?? '—'}</div>
+              <div><strong>Dataset:</strong> {readyDatasets.find((d) => d.id === selectedDatasetId)?.name ?? '—'}</div>
               <div><strong>Device:</strong> {device === '' ? 'auto-detect' : device === 'cpu' ? 'CPU' : `GPU (device=${device})`}</div>
-              <div><strong>Total Evaluations:</strong> <span style={{ color: 'var(--primary)', fontWeight: 600 }}>{selectedModelIds.length * selectedDatasetIds.length}</span></div>
             </div>
-          </div>
-
-          <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-sub)', marginTop: '4px' }}>
-            Evaluation Matrix Overview ({selectedModelIds.length} x {selectedDatasetIds.length}):
-          </div>
-
-          <div className="table-wrap" style={{ maxHeight: '200px', overflow: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-            <table style={{ fontSize: '12px', margin: 0 }}>
-              <thead>
-                <tr>
-                  <th style={{ position: 'sticky', top: 0, background: 'var(--surface-muted)' }}>Dataset \ Model</th>
-                  {availableModels
-                    .filter((m) => selectedModelIds.includes(m.id))
-                    .map((m) => (
-                      <th key={m.id} style={{ position: 'sticky', top: 0, background: 'var(--surface-muted)', whiteSpace: 'nowrap' }}>
-                        {m.name}
-                      </th>
-                    ))}
-                </tr>
-              </thead>
-              <tbody>
-                {readyDatasets
-                  .filter((d) => selectedDatasetIds.includes(d.id))
-                  .map((d) => (
-                    <tr key={d.id}>
-                      <td style={{ fontWeight: 500 }}>{d.name}</td>
-                      {availableModels
-                        .filter((m) => selectedModelIds.includes(m.id))
-                        .map((m) => (
-                          <td key={m.id} style={{ textAlign: 'center', color: 'var(--text-sub)' }}>
-                            <span style={{ fontSize: '11px', background: 'var(--blue-glow)', color: 'var(--blue)', padding: '2px 6px', borderRadius: '4px' }}>
-                              Queued
-                            </span>
-                          </td>
-                        ))}
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
           </div>
 
           {workersData && workersData.data.filter((w) => w.status === 'ONLINE').length > 0 && (
