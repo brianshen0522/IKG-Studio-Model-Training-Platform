@@ -214,7 +214,10 @@ export async function reconcileStaleExecutions(
 
         // Dataset scans: the worker died mid-scan. Fail the scan row so the Jobs card
         // stops showing a contradictory "lost (PENDING)" and the per-source
-        // PENDING/RUNNING uniqueness constraint frees the dataset for a rescan.
+        // PENDING/RUNNING uniqueness constraint frees the dataset for a rescan. The
+        // worker's own failure path marks the source dataset INVALID, but a lost scan
+        // never ran — reset the source from SCANNING to REGISTERED instead, since the
+        // folder may be perfectly fine and simply needs a rescan.
         if (candidate.job_type === 'DATASET_SCAN') {
           const failedScan = await trx
             .updateTable('source_dataset_scans')
@@ -234,6 +237,16 @@ export async function reconcileStaleExecutions(
               correlation_id: candidate.correlation_id, error_code: 'EXECUTION_LOST',
               metadata: { job_type: candidate.job_type },
             }).execute();
+            const scanRow = await trx.selectFrom('source_dataset_scans')
+              .select('source_dataset_id').where('id', '=', candidate.job_id).executeTakeFirst();
+            if (scanRow) {
+              await trx.updateTable('source_datasets')
+                .set({ status: 'REGISTERED', updated_at: sql`now()` })
+                .where('id', '=', scanRow.source_dataset_id)
+                .where('status', '=', 'SCANNING')
+                .where('latest_scan_id', '=', candidate.job_id)
+                .execute();
+            }
             result.failed += 1;
           }
           return;
