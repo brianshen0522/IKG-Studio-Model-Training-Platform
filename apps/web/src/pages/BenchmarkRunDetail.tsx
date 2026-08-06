@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiGet, ApiError } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { SkeletonLoader } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
 import { formatDate } from '../lib/format';
@@ -57,6 +58,7 @@ export function BenchmarkRunDetail({ id, onBack }: { id: string; onBack: () => v
   const [viewMode, setViewMode] = useState<'matrix' | 'chart' | 'list'>('matrix');
   const [metricTab, setMetricTab] = useState<'map50' | 'f1' | 'precision' | 'recall'>('map50');
   const [search, setSearch] = useState('');
+  const [stopConfirm, setStopConfirm] = useState<{ id: string; name: string } | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
 
   // Artifact Modal State
@@ -193,10 +195,7 @@ export function BenchmarkRunDetail({ id, onBack }: { id: string; onBack: () => v
                 <button
                   className="btn btn-sm btn-danger"
                   disabled={stopMut.isPending}
-                  onClick={() => {
-                    if (!window.confirm(`Stop "${data.name}"? This cannot be undone.`)) return;
-                    stopMut.mutate(data.id);
-                  }}
+                  onClick={() => setStopConfirm({ id: data.id, name: data.name })}
                 >
                   {stopMut.isPending ? '…' : stopLabel(data.status)}
                 </button>
@@ -548,6 +547,16 @@ export function BenchmarkRunDetail({ id, onBack }: { id: string; onBack: () => v
             <TextArtifactModal
               artifact={textArtifact}
               onClose={() => setTextArtifact(null)}
+            />
+          )}
+          {stopConfirm && (
+            <ConfirmDialog
+              title="Stop benchmark run"
+              message={`Stop "${stopConfirm.name}"? This cannot be undone.`}
+              confirmLabel="Stop"
+              danger
+              onCancel={() => setStopConfirm(null)}
+              onConfirm={() => { const c = stopConfirm; setStopConfirm(null); stopMut.mutate(c.id); }}
             />
           )}
         </>

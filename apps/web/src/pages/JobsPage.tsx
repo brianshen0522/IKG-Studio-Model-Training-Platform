@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { apiGet, apiGetList } from '../lib/api';
 import { useStopTrainingJob } from '../lib/trainingActions';
@@ -6,6 +7,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { SkeletonLoader } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
 import { JobDetailModal } from '../components/JobDetailModal';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { InfiniteSentinel } from '../components/InfiniteSentinel';
 import { Select } from '../components/Select';
 import { useUiStore } from '../stores/ui';
@@ -96,6 +98,7 @@ export function JobsPage() {
   const setJobsFilter = useUiStore((s) => s.setJobsFilter);
   const [selectedId, setSelectedId] = useUrlParam('jobId');
   const stopMut = useStopTrainingJob();
+  const [stopConfirm, setStopConfirm] = useState<{ id: string; name: string } | null>(null);
 
   const filtersActive = jobType !== '' || statusTab !== '';
   const resetFilters = () => setJobsFilter({ jobType: '', statusTab: '' });
@@ -210,8 +213,7 @@ export function JobsPage() {
                         disabled={stopMut.isPending}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (!window.confirm(`Stop "${item.name}"? This cannot be undone.`)) return;
-                          stopMut.mutate(item.resource_id);
+                          setStopConfirm({ id: item.resource_id, name: item.name });
                         }}
                       >
                         Stop
@@ -244,6 +246,16 @@ export function JobsPage() {
           onLoadMore={() => fetchNextPage()}
         />
         </>
+      )}
+      {stopConfirm && (
+        <ConfirmDialog
+          title="Stop job"
+          message={`Stop "${stopConfirm.name}"? This cannot be undone.`}
+          confirmLabel="Stop"
+          danger
+          onCancel={() => setStopConfirm(null)}
+          onConfirm={() => { const c = stopConfirm; setStopConfirm(null); stopMut.mutate(c.id); }}
+        />
       )}
     </section>
   );

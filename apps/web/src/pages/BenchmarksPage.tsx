@@ -6,6 +6,7 @@ import { SkeletonLoader } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
 import { NewBenchmarkRunDialog } from '../components/NewBenchmarkRunDialog';
 import { CompareModelsDialog } from '../components/CompareModelsDialog';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { BenchmarkRunDetail } from './BenchmarkRunDetail';
 import { SearchableSelect, type SelectOption } from '../components/SearchableSelect';
 import { formatDate } from '../lib/format';
@@ -43,6 +44,7 @@ type SortOption = 'NEWEST' | 'OLDEST' | 'EVALUATIONS_DESC' | 'PROGRESS_DESC';
 export function BenchmarksPage() {
   const [showNew, setShowNew] = useState(false);
   const [showCompare, setShowCompare] = useState(false);
+  const [stopConfirm, setStopConfirm] = useState<{ id: string; name: string } | null>(null);
   const [selectedId, setSelectedId] = useUrlParam('benchmarkRunId');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -358,8 +360,7 @@ export function BenchmarksPage() {
                           disabled={stopMut.isPending}
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (!window.confirm(`Stop "${b.name}"? This cannot be undone.`)) return;
-                            stopMut.mutate(b.id);
+                            setStopConfirm({ id: b.id, name: b.name });
                           }}
                         >
                           {stopMut.isPending ? '…' : stopLabel(b.status)}
@@ -414,6 +415,16 @@ export function BenchmarksPage() {
 
       {showNew && <NewBenchmarkRunDialog onClose={() => setShowNew(false)} />}
       {showCompare && <CompareModelsDialog onClose={() => setShowCompare(false)} />}
+      {stopConfirm && (
+        <ConfirmDialog
+          title="Stop benchmark run"
+          message={`Stop "${stopConfirm.name}"? This cannot be undone.`}
+          confirmLabel="Stop"
+          danger
+          onCancel={() => setStopConfirm(null)}
+          onConfirm={() => { const c = stopConfirm; setStopConfirm(null); stopMut.mutate(c.id); }}
+        />
+      )}
     </section>
   );
 }

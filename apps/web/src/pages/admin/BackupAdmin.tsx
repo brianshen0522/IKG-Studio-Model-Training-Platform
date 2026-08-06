@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { apiSend, readCsrfCookie } from '../../lib/api';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 
 interface BackupCounts {
   users: number;
@@ -14,6 +15,7 @@ export function BackupAdmin() {
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<BackupCounts | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importPayload, setImportPayload] = useState<unknown | null>(null);
 
   async function onExport() {
     setExporting(true);
@@ -36,6 +38,19 @@ export function BackupAdmin() {
     }
   }
 
+  async function runImport(payload: unknown) {
+    setImporting(true);
+    try {
+      const csrf = readCsrfCookie();
+      const counts = await apiSend<BackupCounts>('POST', '/admin/backup/import', payload, csrf);
+      setResult(counts);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setImporting(false);
+    }
+  }
+
   function onFileChange() {
     const file = fileRef.current?.files?.[0];
     if (!file) return;
@@ -50,24 +65,8 @@ export function BackupAdmin() {
         setError('File is not valid JSON.');
         return;
       }
-      if (!window.confirm(
-        'Importing overwrites all users, dataset types and system settings with the contents of this file.\n\n' +
-        'This can only run on a fresh/empty system. Continue?',
-      )) {
-        if (fileRef.current) fileRef.current.value = '';
-        return;
-      }
-      setImporting(true);
-      try {
-        const csrf = readCsrfCookie();
-        const counts = await apiSend<BackupCounts>('POST', '/admin/backup/import', payload, csrf);
-        setResult(counts);
-      } catch (e) {
-        setError((e as Error).message);
-      } finally {
-        setImporting(false);
-        if (fileRef.current) fileRef.current.value = '';
-      }
+      if (fileRef.current) fileRef.current.value = '';
+      setImportPayload(payload);
     };
     reader.readAsText(file);
   }
@@ -106,6 +105,23 @@ export function BackupAdmin() {
           Import complete — {result.users} users, {result.dataset_types} dataset types,
           {result.system_settings} system settings, {result.webauthn_credentials} passkeys.
         </p>
+      )}
+      {importPayload !== null && (
+        <ConfirmDialog
+          title="Import backup"
+          message={
+            'Importing overwrites all users, dataset types and system settings with the contents of this file.\n\n' +
+            'This can only run on a fresh/empty system. Continue?'
+          }
+          confirmLabel="Import"
+          danger
+          onCancel={() => setImportPayload(null)}
+          onConfirm={() => {
+            const payload = importPayload;
+            setImportPayload(null);
+            runImport(payload);
+          }}
+        />
       )}
     </section>
   );

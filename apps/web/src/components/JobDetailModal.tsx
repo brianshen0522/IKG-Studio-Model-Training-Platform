@@ -6,6 +6,7 @@ import { toParsableIso } from '../lib/format';
 import { SkeletonLoader } from './SkeletonLoader';
 import { EmptyState } from './EmptyState';
 import { StatusBadge } from './StatusBadge';
+import { ConfirmDialog } from './ConfirmDialog';
 import { useUiStore } from '../stores/ui';
 import { useUrlParam } from '../lib/urlState';
 
@@ -161,6 +162,7 @@ export function JobDetailModal({ id, onClose }: { id: string; onClose: () => voi
   const [logLoading, setLogLoading] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [stopConfirm, setStopConfirm] = useState<{ id: string; name: string } | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!logArtifact) return;
@@ -220,10 +222,7 @@ export function JobDetailModal({ id, onClose }: { id: string; onClose: () => voi
             <button
               className="btn btn-sm btn-danger"
               disabled={stopMut.isPending || data.business_status === 'STOPPING'}
-              onClick={() => {
-                if (!window.confirm(`Stop "${data.name}"? This cannot be undone.`)) return;
-                stopMut.mutate(data.resource_id);
-              }}
+              onClick={() => setStopConfirm({ id: data.resource_id, name: data.name })}
             >
               {stopMut.isPending || data.business_status === 'STOPPING' ? 'Stopping…' : 'Stop'}
             </button>
@@ -366,6 +365,16 @@ export function JobDetailModal({ id, onClose }: { id: string; onClose: () => voi
           )}
         </div>
       </div>
+      {stopConfirm && (
+        <ConfirmDialog
+          title="Stop job"
+          message={`Stop "${stopConfirm.name}"? This cannot be undone.`}
+          confirmLabel="Stop"
+          danger
+          onCancel={() => setStopConfirm(null)}
+          onConfirm={() => { const c = stopConfirm; setStopConfirm(null); stopMut.mutate(c.id); }}
+        />
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiGetList } from '../lib/api';
 import { useStopTrainingJob, useRetryTrainingJob, canStop, canRetry, stopLabel } from '../lib/trainingActions';
 import { StatusBadge } from '../components/StatusBadge';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { NewTrainingWizard } from '../components/NewTrainingWizard';
 import { TrainingJobDetail } from './TrainingJobDetail';
 import { SkeletonLoader } from '../components/SkeletonLoader';
@@ -51,6 +52,7 @@ const STATUS_OPTIONS: SelectOption[] = [
 
 export function TrainingJobsPage() {
   const [showNew, setShowNew] = useState(false);
+  const [stopConfirm, setStopConfirm] = useState<{ id: string; name: string } | null>(null);
   const [selectedId, setSelectedId] = useUrlParam('trainingJobId');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -346,8 +348,7 @@ export function TrainingJobsPage() {
                         disabled={stopMut.isPending}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (!window.confirm(`Stop "${j.name}"? This cannot be undone.`)) return;
-                          stopMut.mutate(j.id);
+                          setStopConfirm({ id: j.id, name: j.name });
                         }}
                       >
                         {stopMut.isPending ? '…' : stopLabel(j.status)}
@@ -373,6 +374,16 @@ export function TrainingJobsPage() {
         </div>
       )}
       {showNew && <NewTrainingWizard onClose={() => setShowNew(false)} />}
+      {stopConfirm && (
+        <ConfirmDialog
+          title="Stop training job"
+          message={`Stop "${stopConfirm.name}"? This cannot be undone.`}
+          confirmLabel="Stop"
+          danger
+          onCancel={() => setStopConfirm(null)}
+          onConfirm={() => { const c = stopConfirm; setStopConfirm(null); stopMut.mutate(c.id); }}
+        />
+      )}
     </section>
   );
 }

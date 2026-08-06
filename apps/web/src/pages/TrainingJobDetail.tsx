@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiGet, ApiError } from '../lib/api';
 import { useStopTrainingJob, useRetryTrainingJob, canStop, canRetry, stopLabel } from '../lib/trainingActions';
 import { StatusBadge } from '../components/StatusBadge';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { SkeletonLoader } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
 import { ChartGrid, ChartLightbox, TextArtifactModal, ARTIFACT_LABELS, isImageArtifact, isTextArtifact, type ChartArtifact } from '../components/ChartViewer';
@@ -99,6 +100,7 @@ export function TrainingJobDetail({ id, onBack }: { id: string; onBack: () => vo
     { kind: 'image'; index: number } | { kind: 'text'; artifact: Artifact } | null
   >(null);
   const [openJobId, setOpenJobId] = useState<string | null>(null);
+  const [stopConfirm, setStopConfirm] = useState<{ id: string; name: string } | null>(null);
   const stopMut = useStopTrainingJob();
   const retryMut = useRetryTrainingJob();
 
@@ -206,10 +208,7 @@ export function TrainingJobDetail({ id, onBack }: { id: string; onBack: () => vo
                 <button
                   className="btn btn-sm btn-danger"
                   disabled={stopMut.isPending}
-                  onClick={() => {
-                    if (!window.confirm(`Stop "${data.name}"? This cannot be undone.`)) return;
-                    stopMut.mutate(id);
-                  }}
+                  onClick={() => setStopConfirm({ id, name: data.name })}
                 >
                   {stopMut.isPending ? 'Stopping…' : stopLabel(data.status)}
                 </button>
@@ -431,6 +430,16 @@ export function TrainingJobDetail({ id, onBack }: { id: string; onBack: () => vo
         <TextArtifactModal artifact={preview.artifact} onClose={() => setPreview(null)} />
       )}
       {openJobId && <JobDetailModal id={openJobId} onClose={() => setOpenJobId(null)} />}
+      {stopConfirm && (
+        <ConfirmDialog
+          title="Stop training job"
+          message={`Stop "${stopConfirm.name}"? This cannot be undone.`}
+          confirmLabel="Stop"
+          danger
+          onCancel={() => setStopConfirm(null)}
+          onConfirm={() => { const c = stopConfirm; setStopConfirm(null); stopMut.mutate(c.id); }}
+        />
+      )}
     </section>
   );
 }
