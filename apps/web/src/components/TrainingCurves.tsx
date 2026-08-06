@@ -139,20 +139,26 @@ function LineGraph({ epochs, series, height = 220 }: LineGraphProps) {
         {hover != null && hoverEpoch != null && (
           <g>
             <line x1={hoverX} y1={LINE_PAD_T} x2={hoverX} y2={LINE_PAD_T + innerH} stroke="var(--text-sub)" strokeDasharray="2 3" />
-            <text x={hoverX} y={LINE_PAD_T + 4} textAnchor="middle" fontSize="9" fill="var(--text-sub)">epoch {hoverEpoch}</text>
-            {series.length <= 8 && (
-              <>
-                <rect x={hoverX + 6} y={LINE_PAD_T + 14} width={112} height={10 + series.length * 12} fill="var(--surface)" stroke="var(--border)" rx="3" />
-                {series.map((s, i) => {
-                  const v = s.values[hover];
-                  return (
-                    <text key={s.id} x={hoverX + 12} y={LINE_PAD_T + 26 + i * 12} fontSize="9" fill={s.color}>
-                      {s.label}: {v != null ? v.toFixed(4) : '—'}
-                    </text>
-                  );
-                })}
-              </>
-            )}
+            <text x={Math.max(LINE_PAD_L + 24, Math.min(LINE_W - LINE_PAD_R - 24, hoverX))} y={LINE_PAD_T + 4} textAnchor="middle" fontSize="9" fill="var(--text-sub)">epoch {hoverEpoch}</text>
+            {series.length <= 8 && (() => {
+              const TIP_W = 132;
+              let tipX = hoverX + 6;
+              if (tipX + TIP_W > LINE_W - LINE_PAD_R) tipX = hoverX - 6 - TIP_W;
+              if (tipX < LINE_PAD_L) tipX = LINE_PAD_L;
+              return (
+                <>
+                  <rect x={tipX} y={LINE_PAD_T + 14} width={TIP_W} height={10 + series.length * 12} fill="var(--surface)" stroke="var(--border)" rx="3" />
+                  {series.map((s, i) => {
+                    const v = s.values[hover];
+                    return (
+                      <text key={s.id} x={tipX + 8} y={LINE_PAD_T + 26 + i * 12} fontSize="9" fill={s.color}>
+                        {s.label}: {v != null ? v.toFixed(4) : '—'}
+                      </text>
+                    );
+                  })}
+                </>
+              );
+            })()}
           </g>
         )}
       </svg>
