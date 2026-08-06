@@ -71,7 +71,29 @@ interface IssueItem {
   image_relative_path: string | null;
   label_relative_path: string | null;
   line_number: number | null;
+  details: Record<string, unknown>;
   created_at: string;
+}
+
+const ISSUE_LABELS: Record<string, string> = {
+  DATASET_TASK_NOT_IMPLEMENTED: 'Task type not supported by the scanner',
+  DATASET_LABEL_INVALID: 'Label line is not a valid YOLO record',
+  DATASET_CLASS_INDEX_INVALID: 'Label references a class id not in the class list',
+  DATASET_CLASS_INDEX_GAP: 'Class index gap — label files reference class ids missing from the class list',
+  DATASET_LABEL_COORDINATE_OUT_OF_RANGE: 'Bounding box coordinate out of image bounds',
+  DATASET_CLASSES_FILE_INVALID: 'classes.txt is malformed',
+  DATASET_DUPLICATE_CLASS_NAME: 'Duplicate class name in the class list',
+  DATASET_DUPLICATE_IMAGE_STEM: 'Same image filename appears more than once',
+  DATASET_IMAGE_INVALID: 'Image file unreadable or corrupt',
+  DATASET_MISSING_LABEL: 'Image has no matching label',
+  DATASET_MISSING_IMAGE: 'Label has no matching image',
+  DATASET_CLASSES_FILE_NOT_FOUND: 'classes.txt not found in the dataset folder',
+};
+
+function issueDetail(i: IssueItem): string {
+  const d = i.details ?? {};
+  const v = d.error ?? d.reason ?? d.raw ?? '';
+  return typeof v === 'string' ? v : JSON.stringify(v);
 }
 
 // The source folder is read-only so a manual class list is never written to disk —
@@ -100,13 +122,13 @@ export function SourceDatasetDetailPage({ id, onBack }: { id: string; onBack: ()
 
   const classes = useQuery({
     queryKey: ['source-dataset-classes', id, scanId],
-    queryFn: () => apiGet<ClassItem[]>(`/source-datasets/${id}/scans/${scanId}/classes?size=200`),
+    queryFn: () => apiGet<ClassItem[]>(`/source-datasets/${id}/scans/${scanId}/classes`),
     enabled: !!scanId,
   });
 
   const issues = useQuery({
     queryKey: ['source-dataset-issues', id, scanId],
-    queryFn: () => apiGet<IssueItem[]>(`/source-datasets/${id}/scans/${scanId}/issues?size=100`),
+    queryFn: () => apiGet<IssueItem[]>(`/source-datasets/${id}/scans/${scanId}/issues`),
     enabled: !!scanId,
   });
 
@@ -128,6 +150,17 @@ export function SourceDatasetDetailPage({ id, onBack }: { id: string; onBack: ()
 
   const scan = ds?.latest_scan ?? null;
   const canOverride = !!ds && OVERRIDABLE_SOURCES.has(scan?.classes_source ?? null);
+
+  const errorIssues = (issues.data ?? []).filter((i) => i.severity === 'ERROR');
+  const errorSummary = useMemo(() => {
+    const byCode = new Map<string, IssueItem[]>();
+    for (const i of errorIssues) {
+      const list = byCode.get(i.issue_code) ?? [];
+      list.push(i);
+      byCode.set(i.issue_code, list);
+    }
+    return [...byCode.entries()];
+  }, [errorIssues]);
 
   const classNameMap = useMemo(() => {
     const m = new Map<number, string>();
@@ -177,6 +210,33 @@ export function SourceDatasetDetailPage({ id, onBack }: { id: string; onBack: ()
           <div className={ds.status === 'READY' ? 'detail-split' : undefined}>
           <div className="detail-main">
 
+          {ds.status === 'INVALID' && (
+            <div className="error-banner">
+              <strong>This dataset failed validation{scan?.error_count ? ` — ${scan.error_count} error${scan.error_count === 1 ? '' : 's'}` : ''}.</strong>
+              {scan?.error_message && (
+                <p><code>{scan.error_code}</code>: {scan.error_message}</p>
+              )}
+              {errorSummary.length > 0 && (
+                <ul style={{ margin: '0.35rem 0 0', paddingLeft: '1rem' }}>
+                  {errorSummary.map(([code, rows]) => {
+                    const d = issueDetail(rows[0]);
+                    const where = rows[0].image_relative_path ?? rows[0].label_relative_path;
+                    return (
+                      <li key={code} style={{ marginTop: '0.25rem' }}>
+                        <strong>{ISSUE_LABELS[code] ?? code}</strong> — {rows.length}×
+                        {d && <div className="hint" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{d}</div>}
+                        {where && <div className="hint" style={{ overflowWrap: 'anywhere' }}>e.g. <code>{where}</code>{rows[0].line_number != null ? `:${rows[0].line_number}` : ''}</div>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {errorSummary.length === 0 && !scan?.error_message && (
+                <p style={{ margin: '0.35rem 0 0' }}>No valid image/label pairs were found — the folder structure may not match the expected <code>images/</code> + <code>labels/</code> layout.</p>
+              )}
+            </div>
+          )}
+
           <dl className="dl">
             <div><dt>Task type</dt><dd>{ds.task_type}</dd></div>
             <div><dt>Path</dt><dd><PathDisplay path={ds.relative_path} /></dd></div>
@@ -184,10 +244,6 @@ export function SourceDatasetDetailPage({ id, onBack }: { id: string; onBack: ()
             <div><dt>Labels dir</dt><dd><code>{ds.labels_relative_path}</code></dd></div>
             <div><dt>Created</dt><dd>{formatDate(ds.created_at)}</dd></div>
           </dl>
-
-          {ds.status === 'INVALID' && scan?.error_message && (
-            <EmptyState type="error" message={`${scan.error_code}: ${scan.error_message}`} />
-          )}
 
           {scan && (
             <>
@@ -268,16 +324,17 @@ export function SourceDatasetDetailPage({ id, onBack }: { id: string; onBack: ()
               <div className="table-wrap">
                 <table>
                   <thead>
-                    <tr><th>Severity</th><th>Code</th><th>Image</th><th>Label</th><th>Line</th></tr>
+                    <tr><th>Severity</th><th>Code</th><th>Image</th><th>Label</th><th>Line</th><th>Details</th></tr>
                   </thead>
                   <tbody>
                     {issues.data.map((iss) => (
                       <tr key={iss.id}>
-                        <td>{iss.severity}</td>
+                        <td><span className={`sev-badge sev-${iss.severity.toLowerCase()}`}>{iss.severity}</span></td>
                         <td>{iss.issue_code}</td>
                         <td>{iss.image_relative_path ?? '—'}</td>
                         <td>{iss.label_relative_path ?? '—'}</td>
                         <td>{iss.line_number ?? '—'}</td>
+                        <td className="issue-detail-cell">{issueDetail(iss) || '—'}</td>
                       </tr>
                     ))}
                   </tbody>

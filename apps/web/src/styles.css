@@ -1003,10 +1003,28 @@ tbody tr:hover {
 }
 
 /* ================ Severity ================ */
-.sev-success { background: var(--green); }
-.sev-warning { background: var(--yellow); }
+.sev-badge {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #fff;
+}
+.sev-badge.sev-warning { background: var(--yellow); color: #333; }
 .sev-error { background: var(--red); }
+.sev-warning { background: var(--yellow); }
+.sev-success { background: var(--green); }
 .sev-info { background: var(--blue); }
+.issue-detail-cell {
+  max-width: 34rem;
+  font-family: var(--font-mono, "SF Mono", Consolas, monospace);
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text, inherit);
+}
 
 /* ================ Brand ================ */
 .brand { color: var(--text); }
