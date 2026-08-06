@@ -99,6 +99,9 @@ class Benchmarker:
         self.conn.commit()
 
         ctx = self._load(eval_id)
+        # _load only SELECTs but leaves an open transaction; close it so _complete's
+        # now() stamps reflect actual completion, not the _load snapshot time.
+        self.conn.commit()
         work_dir = os.path.join(ctx["model_root_host"], ".benchmark", eval_id)
         try:
             with Heartbeat(self.cfg.pg_conninfo(), job_execution_id, self.cfg.heartbeat_interval_s):
