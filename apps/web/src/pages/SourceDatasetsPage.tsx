@@ -171,16 +171,20 @@ export function SourceDatasetsPage() {
             >
               {g.reindexing || rescanTypeMut.isPending ? 'Reindexing…' : 'Rescan type'}
             </button>
-            <button
-              className="btn btn-sm btn-ghost"
-              disabled={g.folders.length === 0}
-              onClick={() => selectAll(g.dataset_type_id, g.folders.map((f) => f.sub_path))}
-            >
-              Select all
-            </button>
-            <button className="btn btn-sm btn-ghost" disabled={g.folders.length === 0} onClick={() => unselectAll(g.dataset_type_id)}>
-              Deselect all
-            </button>
+            {(() => {
+              const allSelected = g.folders.length > 0 && g.folders.every((f) => selected[g.dataset_type_id]?.has(f.sub_path));
+              return (
+                <button
+                  className="btn btn-sm btn-ghost"
+                  disabled={g.folders.length === 0}
+                  onClick={() => (allSelected
+                    ? unselectAll(g.dataset_type_id)
+                    : selectAll(g.dataset_type_id, g.folders.map((f) => f.sub_path)))}
+                >
+                  {allSelected ? 'Deselect all' : 'Select all'}
+                </button>
+              );
+            })()}
             <button
               className="btn btn-sm btn-ghost"
               disabled={registerAllMut.isPending || g.folders.length === 0}
