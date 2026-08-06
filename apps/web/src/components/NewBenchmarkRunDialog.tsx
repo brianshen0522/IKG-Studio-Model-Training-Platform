@@ -59,16 +59,15 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
   });
   const datasetTypes = datasetTypesData?.data ?? [];
 
-  // Fetch Models
-  const { data: modelsData, isLoading: isLoadingModels } = useQuery({
-    queryKey: ['models-benchmark-options', datasetTypeId],
-    enabled: !!datasetTypeId,
-    queryFn: () =>
-      apiGetList<ModelOption>(
-        `/models?size=200${datasetTypeId ? `&dataset_type_id=${datasetTypeId}` : ''}`,
-      ),
+  // Fetch Models (all types, once) — a dataset type without an AVAILABLE model is
+  // not a valid benchmark target, so the type dropdown disables those outright.
+  const { data: allModelsData, isLoading: isLoadingModels } = useQuery({
+    queryKey: ['models-all'],
+    queryFn: () => apiGetList<ModelOption>('/models?size=500'),
   });
-  const availableModels = (modelsData?.data ?? []).filter((m) => m.status === 'AVAILABLE');
+  const allModels = allModelsData?.data ?? [];
+  const availableModels = allModels.filter((m) => m.status === 'AVAILABLE');
+  const modelTypeIds = new Set(availableModels.map((m) => m.dataset_type_id));
 
   // Fetch Ready Training Datasets
   const { data: datasetsData, isLoading: isLoadingDatasets } = useQuery({
@@ -129,11 +128,13 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const filteredModels = availableModels.filter(
-    (m) =>
-      m.name.toLowerCase().includes(modelSearch.toLowerCase()) ||
-      (m.version_label && m.version_label.toLowerCase().includes(modelSearch.toLowerCase())),
-  );
+  const filteredModels = availableModels
+    .filter((m) => m.dataset_type_id === datasetTypeId)
+    .filter(
+      (m) =>
+        m.name.toLowerCase().includes(modelSearch.toLowerCase()) ||
+        (m.version_label && m.version_label.toLowerCase().includes(modelSearch.toLowerCase())),
+    );
 
   const filteredDatasets = readyDatasets.filter((d) =>
     d.name.toLowerCase().includes(datasetSearch.toLowerCase()),
@@ -236,12 +237,18 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
               }}
             >
               <option value="">-- Select Dataset Type --</option>
-              {datasetTypes.map((dt) => (
-                <option key={dt.id} value={dt.id}>
-                  {dt.name}
-                </option>
-              ))}
+              {datasetTypes.map((dt) => {
+                const hasModel = modelTypeIds.has(dt.id);
+                return (
+                  <option key={dt.id} value={dt.id} disabled={!hasModel}>
+                    {dt.name}{hasModel ? '' : ' (no available models)'}
+                  </option>
+                );
+              })}
             </select>
+            <span className="hint" style={{ marginTop: '6px' }}>
+              Dataset types without an available model are disabled — import a model under Models first.
+            </span>
           </label>
 
           <label className="field">
