@@ -273,6 +273,10 @@ export class TrainingDatasetsService {
       const ds = await trx.selectFrom('training_datasets').selectAll().where('id', '=', id).forUpdate().executeTakeFirst();
       if (!ds) throw err(errorCode.TRAINING_DATASET_NOT_FOUND, 'training dataset not found', 404);
       if (ds.status === 'DELETED') throw err(errorCode.TRAINING_DATASET_ALREADY_DELETED, 'already deleted', 409);
+      if (ds.status === 'BUILDING' || ds.status === 'VALIDATING') {
+        throw err(errorCode.TRAINING_DATASET_ALREADY_RUNNING,
+          `cannot delete while ${ds.status.toLowerCase()}`, 409);
+      }
 
       await trx.updateTable('training_datasets')
         .set({

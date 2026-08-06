@@ -235,7 +235,8 @@ export function TrainingDatasetDetailPage({ id, onBack }: { id: string; onBack: 
                     {currentUserRole === 'ADMIN' && ds.status !== 'DELETED' && (
                       <button
                         className="btn btn-sm btn-danger"
-                        disabled={deleteMutation.isPending}
+                        disabled={deleteMutation.isPending || ds.status === 'BUILDING' || ds.status === 'VALIDATING'}
+                        title={ds.status === 'BUILDING' || ds.status === 'VALIDATING' ? 'Cannot delete while building or validating' : undefined}
                         onClick={openDeleteConfirm}
                       >
                         {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
