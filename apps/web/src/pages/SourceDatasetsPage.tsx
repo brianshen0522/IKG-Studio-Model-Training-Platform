@@ -9,6 +9,7 @@ import { useAuthStore } from '../stores/auth';
 import { useUrlParam } from '../lib/urlState';
 import { useUiStore } from '../stores/ui';
 import { CollapsibleTypeGroup, useTypeGroupCollapse } from '../components/CollapsibleTypeGroup';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { SourceDatasetDetailPage } from './SourceDatasetDetailPage';
 
 interface Folder {
@@ -40,6 +41,7 @@ export function SourceDatasetsPage() {
   const qc = useQueryClient();
   const csrfToken = useAuthStore((s) => s.csrfToken);
   const [busy, setBusy] = useState<string | null>(null);
+  const [confirmAll, setConfirmAll] = useState<{ id: string; name: string; count: number } | null>(null);
   const [selectedId, setSelectedId] = useUrlParam('sourceDatasetId');
 
   const { data, isLoading, error } = useQuery({
@@ -190,9 +192,10 @@ export function SourceDatasetsPage() {
               disabled={registerAllMut.isPending || g.folders.length === 0}
               onClick={() => {
                 const sel = selected[g.dataset_type_id]?.size ?? 0;
-                if (sel === 0 && g.folders.length > 10 && !window.confirm(
-                  `Scanning all ${g.folders.length} folders for "${g.name}" will take a long time. Continue?`,
-                )) return;
+                if (sel === 0 && g.folders.length > 10) {
+                  setConfirmAll({ id: g.dataset_type_id, name: g.name, count: g.folders.length });
+                  return;
+                }
                 registerAllMut.mutate({ id: g.dataset_type_id, subPaths: [...(selected[g.dataset_type_id] ?? [])] });
               }}
               title={
@@ -290,8 +293,22 @@ export function SourceDatasetsPage() {
             </div>
             );
           })()}
-        </CollapsibleTypeGroup>
+          </CollapsibleTypeGroup>
       ))}
+
+      {confirmAll && (
+        <ConfirmDialog
+          title="Scan & register all"
+          message={`Scanning all ${confirmAll.count} folders for "${confirmAll.name}" will take a long time. Continue?`}
+          confirmLabel="Scan all"
+          onCancel={() => setConfirmAll(null)}
+          onConfirm={() => {
+            const c = confirmAll;
+            setConfirmAll(null);
+            registerAllMut.mutate({ id: c.id });
+          }}
+        />
+      )}
     </section>
   );
 }
