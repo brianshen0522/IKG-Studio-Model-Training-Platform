@@ -9,6 +9,8 @@ const actorOf = (req: Request) =>
 const badRequest = (message: string) =>
   new HttpException({ error: { code: errorCode.VALIDATION_FAILED, message, requestId: '' } }, 400);
 const intOr = (v: string | undefined, d: number) => Math.max(parseInt(v ?? String(d), 10) || d, 1);
+// '' (auto) | 'cpu' | comma-separated GPU indices. Mirrors the training wizard's device values.
+const DEVICE_RE = /^$|^cpu$|^\d+(,\d+)*$/;
 
 @Roles('ADMIN', 'USER')
 @Controller('benchmark-runs')
@@ -18,14 +20,19 @@ export class BenchmarksController {
   @Post()
   @HttpCode(202)
   create(
-    @Body() body: { name?: string; description?: string | null; model_ids?: string[]; training_dataset_ids?: string[] } = {},
+    @Body() body: { name?: string; description?: string | null; model_ids?: string[]; training_dataset_ids?: string[]; device?: string } = {},
     @Req() req: Request,
   ) {
     if (!body.name || !body.model_ids?.length || !body.training_dataset_ids?.length) {
       throw badRequest('name, model_ids, training_dataset_ids are required');
     }
+    const device = body.device ?? '';
+    if (!DEVICE_RE.test(device)) {
+      throw badRequest("device must be '', 'cpu', or comma-separated GPU indices");
+    }
     return this.service.create({
-      name: body.name, description: body.description, model_ids: body.model_ids, training_dataset_ids: body.training_dataset_ids,
+      name: body.name, description: body.description, model_ids: body.model_ids,
+      training_dataset_ids: body.training_dataset_ids, device,
     }, actorOf(req));
   }
 

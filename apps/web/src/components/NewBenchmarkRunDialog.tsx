@@ -5,6 +5,7 @@ import { queryClient } from '../lib/queryClient';
 import { useAuthStore } from '../stores/auth';
 import { Modal } from './Modal';
 import { PrereqNotice } from './PrereqNotice';
+import { DevicePicker, type WorkerRow } from './DevicePicker';
 
 interface DatasetType {
   id: string;
@@ -32,7 +33,7 @@ interface ModelOption {
   status: string;
 }
 
-const STEPS = ['Dataset Type & Name', 'Select Models', 'Select Datasets', 'Matrix & Review'];
+const STEPS = ['Dataset Type & Name', 'Select Models', 'Select Datasets', 'Device', 'Matrix & Review'];
 
 export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
   const csrfToken = useAuthStore((s) => s.csrfToken);
@@ -44,6 +45,8 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
   const [description, setDescription] = useState('');
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
   const [selectedDatasetIds, setSelectedDatasetIds] = useState<string[]>([]);
+  const [device, setDevice] = useState('');
+  const [deviceTouched, setDeviceTouched] = useState(false);
 
   // Search Filters inside wizard
   const [modelSearch, setModelSearch] = useState('');
@@ -78,6 +81,13 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
   });
   const readyDatasets = (datasetsData?.data ?? []).filter((d) => d.status === 'READY');
 
+  // Live worker + GPU info for the Device and Review steps.
+  const { data: workersData } = useQuery({
+    queryKey: ['workers'],
+    queryFn: () => apiGetList<WorkerRow>('/admin/workers'),
+    refetchInterval: step === 3 || step === 4 ? 5000 : false,
+  });
+
   const mutation = useMutation({
     mutationFn: async () => {
       const created = await apiSend<{ id: string }>('POST', '/benchmark-runs', {
@@ -85,6 +95,7 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
         description: description || undefined,
         model_ids: selectedModelIds,
         training_dataset_ids: selectedDatasetIds,
+        device,
       }, csrfToken);
 
       return created;
@@ -128,19 +139,25 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
     d.name.toLowerCase().includes(datasetSearch.toLowerCase()),
   );
 
-  const canGoNext = () => {
-    if (step === 0) return datasetTypeId !== '' && name.trim() !== '';
-    if (step === 1) return selectedModelIds.length > 0;
-    if (step === 2) return selectedDatasetIds.length > 0;
-    return true;
-  };
-
   const stepDone = (i: number) => {
     if (i === 0) return datasetTypeId !== '' && name.trim() !== '';
     if (i === 1) return selectedModelIds.length > 0;
     if (i === 2) return selectedDatasetIds.length > 0;
+    if (i === 3) return deviceTouched;
     return false;
   };
+
+  // Strictly sequential, matching the training wizard: a later step is only reachable
+  // once every earlier step is actually done; going back is always allowed.
+  const canGoTo = (i: number): boolean => {
+    if (i <= step) return true;
+    for (let j = 0; j < i; j++) if (!stepDone(j)) return false;
+    return true;
+  };
+
+  const canGoNext = () => stepDone(step);
+
+  const stepVisited = (i: number) => step > i && stepDone(i);
 
   return (
     <Modal
@@ -149,17 +166,15 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
       className="modal-card-benchmark"
       footer={
         <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center' }}>
-          {step > 0 ? (
-            <button className="btn btn-secondary" onClick={() => setStep((s) => s - 1)}>
-              Back
-            </button>
-          ) : <div />}
+          <button className="btn btn-secondary" onClick={() => {
+            if (step === 0) onClose();
+            else setStep((s) => s - 1);
+          }}>
+            {step === 0 ? 'Cancel' : 'Back'}
+          </button>
 
           <div style={{ display: 'flex', gap: '8px' }}>
-            <button className="btn btn-secondary" onClick={onClose}>
-              Cancel
-            </button>
-            {step < STEPS.length - 1 ? (
+            {step < STEPS.length - 1 && (
               <button
                 className="btn btn-primary"
                 disabled={!canGoNext()}
@@ -167,7 +182,8 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
               >
                 Next
               </button>
-            ) : (
+            )}
+            {step === STEPS.length - 1 && (
               <button
                 className="btn btn-primary"
                 disabled={mutation.isPending || selectedModelIds.length === 0 || selectedDatasetIds.length === 0}
@@ -180,16 +196,17 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
         </div>
       }
     >
-      {/* Wizard Progress Steps — clickable to jump between steps */}
+      {/* Wizard Progress Steps — clickable only once earlier steps are done */}
       <div className="wizard-steps" style={{ marginBottom: '16px' }}>
         {STEPS.map((label, i) => (
           <button
             key={label}
-            className={`wizard-step${step === i ? ' active' : ''}${stepDone(i) ? ' done' : ''}`}
+            className={`wizard-step${step === i ? ' active' : ''}${stepVisited(i) ? ' done' : ''}`}
             onClick={() => setStep(i)}
+            disabled={!canGoTo(i)}
             type="button"
           >
-            <span className="wizard-step-num">{stepDone(i) ? '✓' : i + 1}</span>
+            <span className="wizard-step-num">{stepVisited(i) ? '✓' : i + 1}</span>
             <span>{label}</span>
           </button>
         ))}
@@ -199,6 +216,10 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
         <div className="form-error" style={{ marginBottom: '12px' }}>
           {(mutation.error as Error).message}
         </div>
+      )}
+
+      {step > 0 && !datasetTypeId && (
+        <PrereqNotice message="Select a Dataset Type in Step 1 first — models and datasets are loaded per type." onGoToStep={() => setStep(0)} />
       )}
 
       {/* STEP 0: Dataset Type & Name */}
@@ -353,8 +374,26 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      {/* STEP 3: Matrix & Review */}
+      {/* STEP 3: Device */}
       {step === 3 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div className="field">
+            <span>Device</span>
+            <DevicePicker
+              workers={workersData?.data ?? []}
+              value={device}
+              onChange={(v) => { setDeviceTouched(true); setDevice(v); }}
+            />
+            <span className="hint" style={{ marginTop: '6px' }}>
+              All evaluations in this run use the same device. Auto-detect lets the worker pick GPU 0 if
+              available, else CPU.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* STEP 4: Matrix & Review */}
+      {step === 4 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {!datasetTypeId ? (
             <PrereqNotice message="Select a Dataset Type in Step 1 first — models and datasets are loaded per type." onGoToStep={() => setStep(0)} />
@@ -366,6 +405,7 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
             <div style={{ marginTop: '8px', display: 'flex', gap: '16px' }}>
               <div><strong>Models:</strong> {selectedModelIds.length}</div>
               <div><strong>Datasets:</strong> {selectedDatasetIds.length}</div>
+              <div><strong>Device:</strong> {device === '' ? 'auto-detect' : device === 'cpu' ? 'CPU' : `GPU (device=${device})`}</div>
               <div><strong>Total Evaluations:</strong> <span style={{ color: 'var(--primary)', fontWeight: 600 }}>{selectedModelIds.length * selectedDatasetIds.length}</span></div>
             </div>
           </div>
@@ -408,6 +448,33 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
               </tbody>
             </table>
           </div>
+
+          {workersData && workersData.data.filter((w) => w.status === 'ONLINE').length > 0 && (
+            <div>
+              <h4 style={{ margin: '0 0 6px', fontSize: 13, color: 'var(--text-sub)' }}>Workers online</h4>
+              <div className="table-wrap">
+                <table style={{ fontSize: '12px', margin: 0 }}>
+                  <thead>
+                    <tr>
+                      <th>Worker</th><th>Type</th><th>Status</th><th>Compute</th><th>Jobs</th><th>Ultralytics</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {workersData.data.filter((w) => w.status === 'ONLINE').map((w) => (
+                      <tr key={w.worker_key}>
+                        <td style={{ fontWeight: 500 }}>{w.worker_key}</td>
+                        <td>{w.worker_type}</td>
+                        <td><span className="badge badge-green">{w.status}</span></td>
+                        <td>{w.cuda_version && w.cuda_version !== 'None' ? `CUDA ${w.cuda_version}` : 'CPU only'}</td>
+                        <td style={{ textAlign: 'right' }}>{w.active_job_count}</td>
+                        <td style={{ color: 'var(--text-sub)' }}>{w.ultralytics_version || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
             </>
           )}
         </div>

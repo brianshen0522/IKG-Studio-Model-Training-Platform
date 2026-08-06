@@ -14,7 +14,7 @@ const err = (code: string, message: string, status: number) =>
   new HttpException({ error: { code, message, requestId: '' } }, status);
 
 const RUN_FIELDS = [
-  'id', 'name', 'description', 'status', 'evaluation_count', 'completed_count', 'failed_count',
+  'id', 'name', 'description', 'device', 'status', 'evaluation_count', 'completed_count', 'failed_count',
   'queued_at', 'started_at', 'finished_at', 'stop_requested_at', 'stopped_at', 'cloned_from_run_id',
   'created_at', 'created_by_user_id', 'updated_at',
 ] as const;
@@ -28,7 +28,7 @@ export class BenchmarksService {
   ) {}
 
   async create(
-    input: { name: string; description?: string | null; model_ids: string[]; training_dataset_ids: string[] },
+    input: { name: string; description?: string | null; model_ids: string[]; training_dataset_ids: string[]; device?: string },
     actor: Actor,
   ) {
     const name = input.name.trim();
@@ -68,6 +68,7 @@ export class BenchmarksService {
 
       const { id } = await trx.insertInto('benchmark_runs').values({
         name, description: input.description ?? null, status: 'QUEUED',
+        device: input.device ?? '',
         evaluation_count: modelIds.length * datasetIds.length, queued_at: sql`now()`,
         created_by_user_id: actor.id,
       }).returning('id').executeTakeFirstOrThrow();
@@ -262,7 +263,7 @@ export class BenchmarksService {
     if (params.status) q = q.where('status', '=', params.status as never);
     const [{ count }] = await q.select(sql<number>`count(*)`.as('count')).execute();
     const rows = await q.select([
-      'id', 'name', 'description', 'status', 'evaluation_count', 'completed_count', 'failed_count',
+      'id', 'name', 'description', 'device', 'status', 'evaluation_count', 'completed_count', 'failed_count',
       'created_by_user_id', 'created_at', 'finished_at',
     ]).orderBy('created_at', 'desc').limit(size).offset(offset).execute();
 

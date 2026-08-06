@@ -109,6 +109,8 @@ class Benchmarker:
         except BenchmarkError as be:
             self._fail(eval_id, run_id, job_execution_id, correlation_id, be.code, be.message)
         except Exception as e:  # noqa: BLE001
+            import traceback
+            log.error("benchmark failure traceback", benchmark_evaluation_id=eval_id, detail=traceback.format_exc()[-2000:])
             self._fail(eval_id, run_id, job_execution_id, correlation_id, "BENCHMARK_FAILED", str(e)[:500])
         finally:
             shutil.rmtree(work_dir, ignore_errors=True)
@@ -116,7 +118,7 @@ class Benchmarker:
     def _load(self, eval_id: str) -> dict:
         with self.conn.cursor() as cur:
             cur.execute(
-                "SELECT be.model_id, be.training_dataset_id, br.created_by_user_id, "
+                "SELECT be.model_id, be.training_dataset_id, br.created_by_user_id, br.device, "
                 "m.relative_path, m.model_path, "
                 "a.bucket_name, a.object_key, a.checksum, "
                 "d.relative_path, dt.model_path, dt.training_dataset_path "
@@ -132,7 +134,7 @@ class Benchmarker:
             row = cur.fetchone()
             if row is None:
                 raise BenchmarkError("VALIDATION", "BENCHMARK_EVALUATION_NOT_FOUND", "evaluation not found")
-            (model_id, ds_id, created_by, m_rel, m_model_path,
+            (model_id, ds_id, created_by, device, m_rel, m_model_path,
              model_bucket, model_key, model_checksum, ds_rel,
              model_root_host, training_dataset_path) = row
             if not model_root_host:
@@ -142,6 +144,7 @@ class Benchmarker:
                 raise BenchmarkError("VALIDATION", "TD_PATH_NOT_SET", "dataset type has no training_dataset_path configured")
         return {
             "model_id": str(model_id), "training_dataset_id": str(ds_id), "created_by": created_by,
+            "device": (device or "").strip(),
             "model_pt": m_model_path or os.path.join(model_root_host, m_rel),
             "model_artifact": (model_bucket, model_key, model_checksum),
             "data_yaml": os.path.join(training_dataset_path, ds_rel, "data.yaml"),
@@ -169,7 +172,8 @@ class Benchmarker:
         except Exception as e:  # noqa: BLE001
             raise BenchmarkError("PREPARATION", "BENCHMARK_RUNTIME_UNAVAILABLE", f"ultralytics import failed: {e}")
 
-        log.info("starting ultralytics val", benchmark_evaluation_id=eval_id, device=self.cfg.device)
+        device = ctx.get("device") or self.cfg.device
+        log.info("starting ultralytics val", benchmark_evaluation_id=eval_id, device=device)
         model = YOLO(ctx["model_pt"])
 
         def _stop_check(validator):
@@ -189,7 +193,7 @@ class Benchmarker:
         log_buf = io.StringIO()
         with contextlib.redirect_stdout(log_buf), contextlib.redirect_stderr(log_buf):
             results = model.val(
-                data=ctx["data_yaml"], split="val", device=self.cfg.device,
+                data=ctx["data_yaml"], split="val", device=device,
                 project=work_dir, name="val", exist_ok=True, verbose=True, plots=True,
             )
         log_path = os.path.join(work_dir, "benchmark.log")

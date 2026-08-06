@@ -549,6 +549,7 @@ export interface BenchmarkRunsTable {
   id: Generated<string>;
   name: string;
   description: string | null;
+  device: string;
   status: Generated<BenchmarkRunStatus>;
   evaluation_count: Generated<number>;
   completed_count: Generated<number>;
