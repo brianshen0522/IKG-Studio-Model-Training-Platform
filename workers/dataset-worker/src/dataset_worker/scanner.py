@@ -236,7 +236,6 @@ def scan(images_dir: str, labels_dir: str, classes_file: str | None,
             res.ignored_file_count += 1
             continue
         stem = os.path.splitext(rel)[0]
-        res.image_count += 1
         if stem in images:
             dup_stems.add(stem)
         images[stem] = full
@@ -245,7 +244,7 @@ def scan(images_dir: str, labels_dir: str, classes_file: str | None,
     for stem in dup_stems:
         res.issue("ERROR", "DATASET_DUPLICATE_IMAGE_STEM", image=stem)
 
-    _report(30, f"Scanned {res.image_count} images")
+    _report(30, f"Scanned {len(images)} images")
 
     labels: dict[str, str] = {}
     for rel, full in _walk(labels_dir, allow_subdirs, res):
@@ -277,13 +276,20 @@ def scan(images_dir: str, labels_dir: str, classes_file: str | None,
         label_full = labels.get(stem)
         if label_full is None:
             res.missing_label_count += 1
-            res.issue("ERROR", "DATASET_MISSING_LABEL", image=meta["rel"])
+            # A label absent for an image is a data gap, not corruption — the pair
+            # simply never trains. WARNING (not ERROR) so a handful of unlabelled
+            # images don't fail the whole dataset.
+            res.issue("WARNING", "DATASET_MISSING_LABEL", image=meta["rel"])
             continue
         valid, cids = _validate_label(label_full, os.path.relpath(label_full, labels_dir), task_type, res)
         if not valid:
             res.invalid_label_count += 1
         else:
             res.matched_pair_count += 1
+            # image_count counts only images that end up training (have a valid
+            # label) — a missing pair shows up under missing_label_count instead of
+            # inflating the headline image number.
+            res.image_count += 1
             res.items.append({
                 "image_relative_path": meta["rel"],
                 "label_relative_path": os.path.relpath(label_full, labels_dir),
@@ -300,7 +306,9 @@ def scan(images_dir: str, labels_dir: str, classes_file: str | None,
     for stem, full in labels.items():
         if stem not in images:
             res.missing_image_count += 1
-            res.issue("ERROR", "DATASET_MISSING_IMAGE", label=os.path.relpath(full, labels_dir))
+            # Same rule as DATASET_MISSING_LABEL: an orphan label never trains and
+            # is a WARNING, not a reason to invalidate the dataset.
+            res.issue("WARNING", "DATASET_MISSING_IMAGE", label=os.path.relpath(full, labels_dir))
 
     _report(85, "Image/label validation complete")
 
