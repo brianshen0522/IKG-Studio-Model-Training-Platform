@@ -78,6 +78,10 @@ export function CompareModelsDialog({ onClose }: { onClose: () => void }) {
     queryFn: () => apiGetList<ModelOption>('/models?size=500'),
   });
   const availableModels = (allModelsData?.data ?? []).filter((m) => m.status === 'AVAILABLE');
+  // A type needs at least 2 available models to compare — count per type up front so
+  // the Step 0 dropdown can disable types that can never produce a comparison.
+  const modelCountByType = new Map<string, number>();
+  for (const m of availableModels) modelCountByType.set(m.dataset_type_id, (modelCountByType.get(m.dataset_type_id) ?? 0) + 1);
 
   // Which of the type's models actually have a COMPLETED evaluation — probed up
   // front so Step 2 can disable the ones that would produce an empty chart.
@@ -174,12 +178,18 @@ export function CompareModelsDialog({ onClose }: { onClose: () => void }) {
               onChange={(e) => { setDatasetTypeId(e.target.value); setSelectedModelIds([]); }}
             >
               <option value="">-- Select Dataset Type --</option>
-              {datasetTypes.map((dt) => (
-                <option key={dt.id} value={dt.id}>{dt.name}</option>
-              ))}
+              {datasetTypes.map((dt) => {
+                const count = modelCountByType.get(dt.id) ?? 0;
+                const enough = count >= 2;
+                return (
+                  <option key={dt.id} value={dt.id} disabled={!enough}>
+                    {dt.name}{enough ? '' : ' (needs 2+ models)'}
+                  </option>
+                );
+              })}
             </select>
             <span className="hint" style={{ marginTop: '6px' }}>
-              Pick the dataset type whose available models you want to compare side by side.
+              Dataset types with fewer than 2 available models are disabled — nothing to compare yet.
             </span>
           </label>
         </div>
