@@ -460,9 +460,13 @@ export class TrainingDatasetsService {
       })).digest('hex');
 
       const jobType = registered ? 'TRAINING_DATASET_SCAN' : 'DATASET_BUILD';
+      const lastExecution = await trx.selectFrom('job_executions')
+        .select('attempt_number').where('job_type', '=', jobType).where('job_id', '=', datasetId)
+        .orderBy('attempt_number', 'desc').limit(1).executeTakeFirst();
+      const attemptNumber = (lastExecution?.attempt_number ?? 0) + 1;
       const assignmentToken = randomUUID();
       const { id: jobExecutionId } = await trx.insertInto('job_executions').values({
-        job_type: jobType, job_id: datasetId, attempt_number: 1, assignment_token: assignmentToken,
+        job_type: jobType, job_id: datasetId, attempt_number: attemptNumber, assignment_token: assignmentToken,
         configuration_snapshot: { training_dataset_id: datasetId, origin: ds.origin } as Record<string, unknown>,
         configuration_hash: configHash,
         correlation_id: correlationId,
@@ -480,7 +484,7 @@ export class TrainingDatasetsService {
         aggregateTypeCode: 'JOB_EXECUTION', aggregateId: jobExecutionId,
         payload: {
           job_execution_id: jobExecutionId, assignment_token: assignmentToken, job_type: jobType,
-          training_dataset_id: datasetId, correlation_id: correlationId, attempt_number: 1,
+          training_dataset_id: datasetId, correlation_id: correlationId, attempt_number: attemptNumber,
         } as Record<string, unknown>,
         correlationId,
       }, trx);
