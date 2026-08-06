@@ -604,6 +604,15 @@ class Trainer:
                     log.warn("log artifact insert failed", training_job_id=job_id, error=str(e)[:200])
             # register TRAINING-source model
             cur.execute(
+                "SELECT 1 FROM models WHERE dataset_type_id=%s AND lower(name)=lower(%s)",
+                (ctx["dataset_type_id"], ctx["name"]),
+            )
+            if cur.fetchone():
+                raise TrainingError(
+                    "POST_PROCESSING", "MODEL_NAME_TAKEN",
+                    f'model name "{ctx["name"]}" already exists in this dataset type — rename the training job',
+                )
+            cur.execute(
                 "INSERT INTO models (id, name, dataset_type_id, task_type, source_type, status, "
                 "relative_path, model_path, original_filename, file_size_bytes, checksum_algorithm, checksum, "
                 "source_artifact_id, source_training_job_id, architecture_metadata, validation_summary, "

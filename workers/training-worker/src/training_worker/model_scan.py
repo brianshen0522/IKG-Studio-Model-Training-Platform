@@ -288,6 +288,15 @@ class ModelScanner:
 
         model_id = str(uuid.uuid4())
         name = os.path.splitext(os.path.basename(filename))[0]
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM models WHERE dataset_type_id=%s AND lower(name)=lower(%s)",
+                (type_id, name),
+            )
+            if cur.fetchone():
+                self.conn.rollback()
+                log.warn("skipping model with duplicate name in dataset type", name=name, path=rel)
+                return False
         try:
             with self.conn.cursor() as cur:
                 cur.execute(

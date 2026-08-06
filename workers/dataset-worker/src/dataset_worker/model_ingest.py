@@ -252,6 +252,16 @@ class ModelIngestWorker:
         return rel
 
     def _publish_and_register(self, ctx, task_id, job_execution_id, correlation_id, tmp_file, info) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM models WHERE dataset_type_id=%s AND lower(name)=lower(%s)",
+                (ctx["dataset_type_id"], ctx["name"]),
+            )
+            if cur.fetchone():
+                raise IngestError(
+                    "MODEL_NAME_TAKEN",
+                    f'model name "{ctx["name"]}" already exists in this dataset type',
+                )
         rel = self._target_relative_path(ctx, info["checksum"])
         target_final = os.path.join(ctx["root_host"], rel)
         os.makedirs(os.path.dirname(target_final), exist_ok=True)

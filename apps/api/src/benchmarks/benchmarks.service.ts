@@ -16,7 +16,7 @@ const err = (code: string, message: string, status: number) =>
 const RUN_FIELDS = [
   'id', 'name', 'description', 'device', 'status', 'evaluation_count', 'completed_count', 'failed_count',
   'queued_at', 'started_at', 'finished_at', 'stop_requested_at', 'stopped_at', 'cloned_from_run_id',
-  'created_at', 'created_by_user_id', 'updated_at',
+  'created_at', 'created_by_user_id', 'updated_at', 'dataset_type_id',
 ] as const;
 
 @Injectable()
@@ -40,14 +40,14 @@ export class BenchmarksService {
 
     const correlationId = randomUUID();
     return this.db.transaction().execute(async (trx) => {
-      const models = await trx.selectFrom('models').select(['id', 'status', 'task_type', 'checksum'])
+      const models = await trx.selectFrom('models').select(['id', 'status', 'task_type', 'checksum', 'dataset_type_id'])
         .where('id', 'in', modelIds).execute();
       if (models.length !== modelIds.length) {
         const found = new Set(models.map((m) => m.id));
         const missing = modelIds.find((m) => !found.has(m));
         throw err(errorCode.MODEL_NOT_FOUND, `model ${missing} not found`, 404);
       }
-      const datasets = await trx.selectFrom('training_datasets').select(['id', 'status', 'task_type', 'configuration_hash'])
+      const datasets = await trx.selectFrom('training_datasets').select(['id', 'status', 'task_type', 'configuration_hash', 'dataset_type_id'])
         .where('id', 'in', datasetIds).execute();
       if (datasets.length !== datasetIds.length) {
         const found = new Set(datasets.map((d) => d.id));
@@ -65,10 +65,20 @@ export class BenchmarksService {
           if (m.task_type !== d.task_type) throw err(errorCode.BENCHMARK_TASK_TYPE_MISMATCH, 'model/dataset task type mismatch', 400);
         }
       }
+      const typeIds = new Set<string>([...models.map((m) => m.dataset_type_id), ...datasets.map((d) => d.dataset_type_id)]);
+      if (typeIds.size !== 1) {
+        throw err(errorCode.BENCHMARK_TYPE_MISMATCH, 'all models and datasets must belong to the same dataset type', 400);
+      }
+      const datasetTypeId = [...typeIds][0];
+      const dup = await trx.selectFrom('benchmark_runs').select('id')
+        .where('dataset_type_id', '=', datasetTypeId).where(sql`lower(name)`, '=', name.toLowerCase()).executeTakeFirst();
+      if (dup) {
+        throw err(errorCode.BENCHMARK_NAME_TAKEN, `a benchmark named "${name}" already exists in this dataset type`, 409);
+      }
 
       const { id } = await trx.insertInto('benchmark_runs').values({
         name, description: input.description ?? null, status: 'QUEUED',
-        device: input.device ?? '',
+        device: input.device ?? '', dataset_type_id: datasetTypeId,
         evaluation_count: modelIds.length * datasetIds.length, queued_at: sql`now()`,
         created_by_user_id: actor.id,
       }).returning('id').executeTakeFirstOrThrow();

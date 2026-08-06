@@ -564,6 +564,7 @@ export interface BenchmarkRunsTable {
   created_at: Generated<string>;
   created_by_user_id: string;
   updated_at: Generated<string>;
+  dataset_type_id: string;
 }
 
 export interface BenchmarkRunModelsTable {
