@@ -12,6 +12,10 @@ TEMP_SUFFIXES = (".tmp", ".temp", ".part", ".swp", "~")
 # valid at either FIELD_COUNT[task] or FIELD_COUNT[task] + 1 fields. Ultralytics
 # itself rejects the extra column, so the builder strips it on the way in.
 FIELD_COUNT = {"DETECT": 5, "OBB": 9}
+# Box edges sticking slightly past the image border are clipped to [0,1] at build
+# time (see builder._write_label) — that's annotation noise, a WARNING. A box
+# beyond this tolerance is garbage data and fails the label.
+COORD_TOLERANCE = 0.1
 
 
 def _is_hidden(name: str) -> bool:
@@ -151,10 +155,14 @@ def _validate_label(path: str, rel: str, task_type: str, res: ScanResult) -> tup
                 valid = False
                 continue
             res.confidence_label_count += 1
-        if any(c < 0.0 or c > 1.0 for c in coords):
+        if any(c < -COORD_TOLERANCE or c > 1.0 + COORD_TOLERANCE for c in coords):
             res.issue("ERROR", "DATASET_LABEL_COORDINATE_OUT_OF_RANGE", label=rel, line=lineno, raw=line[:200])
             valid = False
             continue
+        if any(c < 0.0 or c > 1.0 for c in coords):
+            # Slightly off-canvas box: kept as a valid pair, clipped to [0,1] at
+            # build time.
+            res.issue("WARNING", "DATASET_LABEL_COORDINATE_OUT_OF_RANGE", label=rel, line=lineno, raw=line[:200])
         if task_type == "DETECT" and (coords[2] <= 0 or coords[3] <= 0):
             res.issue("ERROR", "DATASET_LABEL_INVALID", label=rel, line=lineno, raw=line[:200], reason="width/height must be > 0")
             valid = False

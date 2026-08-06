@@ -50,12 +50,15 @@ def _copy_or_link(src: str, dst: str, mode: str) -> None:
 
 
 def _write_label(src: str, dst: str, mode: str, expected: int | None) -> bool:
-    """Materialise one label file, dropping the optional trailing confidence column.
+    """Materialise one label file, dropping the optional trailing confidence column
+    and clipping box edges to [0,1].
 
     Dataset Manager may emit `cls cx cy w h confidence` (and the OBB equivalent);
     the scanner accepts those, but Ultralytics does not — `verify_image_label`
-    asserts exactly 5 columns for DETECT. So a row carrying confidence has to be
-    rewritten rather than copied. Hardlinking a rewritten file would edit the
+    asserts exactly 5 columns for DETECT. And the scanner tolerates boxes that
+    stick slightly past the image border (WARNING), which Ultralytics likewise
+    dislikes. So a row carrying confidence or an out-of-range coordinate has to
+    be rewritten rather than copied. Hardlinking a rewritten file would edit the
     read-only source, so such files degrade to a real write regardless of
     storage_mode. Returns True when the file was rewritten.
     """
@@ -64,17 +67,30 @@ def _write_label(src: str, dst: str, mode: str, expected: int | None) -> bool:
         return False
     with open(src, "r", encoding="utf-8") as fh:
         lines = fh.readlines()
-    if not any(len(ln.split()) == expected + 1 for ln in lines):
+    rows = [ln.split() for ln in lines if ln.split()]
+    if not rows:
         _copy_or_link(src, dst, mode)
         return False
-    rows = []
-    for ln in lines:
-        parts = ln.split()
-        if not parts:
-            continue
-        rows.append(" ".join(parts[:expected]))
+    needs_rewrite = False
+    out = []
+    for parts in rows:
+        keep = parts[:expected]
+        if len(parts) == expected + 1:
+            needs_rewrite = True
+        for i in range(1, len(keep)):
+            try:
+                v = float(keep[i])
+            except ValueError:
+                continue
+            if v < 0.0 or v > 1.0:
+                keep[i] = str(max(0.0, min(1.0, v)))
+                needs_rewrite = True
+        out.append(" ".join(keep))
+    if not needs_rewrite:
+        _copy_or_link(src, dst, mode)
+        return False
     with open(dst, "w", encoding="utf-8") as fh:
-        fh.write("".join(r + "\n" for r in rows))
+        fh.write("".join(r + "\n" for r in out))
     return True
 
 
