@@ -43,9 +43,26 @@ export class DashboardService {
       .select(['id', 'name', 'status', 'started_at', 'created_at'])
       .where('status', 'in', ['QUEUED', 'RUNNING'])
       .orderBy('created_at', 'desc').limit(10).execute();
+    const activeScans = await this.db.selectFrom('source_dataset_scans as s')
+      .innerJoin('source_datasets as sd', 'sd.id', 's.source_dataset_id')
+      .select(['s.id', 'sd.name', 's.status', 's.started_at', 's.created_at'])
+      .where('s.status', 'in', ['PENDING', 'RUNNING'])
+      .orderBy('s.created_at', 'desc').limit(10).execute();
+    const activeBuilds = await this.db.selectFrom('training_datasets')
+      .select(['id', 'name', 'status', 'build_started_at', 'created_at'])
+      .where('status', 'in', ['BUILDING', 'VALIDATING'])
+      .where('archived_at', 'is', null)
+      .orderBy('created_at', 'desc').limit(10).execute();
+    const activeIngests = await this.db.selectFrom('model_ingest_tasks')
+      .select(['id', 'requested_name', 'status', 'started_at', 'created_at'])
+      .where('status', 'in', ['PENDING', 'QUEUED', 'VALIDATING'])
+      .orderBy('created_at', 'desc').limit(10).execute();
     const activeJobs = [
       ...activeTraining.map((j) => ({ id: j.id, name: j.name, type: 'TRAINING', status: j.status, started_at: j.started_at })),
       ...activeBenchmark.map((j) => ({ id: j.id, name: j.name, type: 'BENCHMARK', status: j.status, started_at: j.started_at })),
+      ...activeScans.map((s) => ({ id: s.id, name: s.name, type: 'DATASET_SCAN', status: s.status, started_at: s.started_at })),
+      ...activeBuilds.map((b) => ({ id: b.id, name: b.name, type: 'DATASET_BUILD', status: b.status, started_at: b.build_started_at })),
+      ...activeIngests.map((i) => ({ id: i.id, name: i.requested_name, type: 'MODEL_INGEST', status: i.status, started_at: i.started_at })),
     ];
 
     const recentModels = await this.db.selectFrom('models')
