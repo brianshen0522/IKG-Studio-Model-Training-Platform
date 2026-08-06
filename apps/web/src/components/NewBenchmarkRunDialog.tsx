@@ -357,7 +357,10 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
 
       {/* STEP 3: Device */}
       {step === 3 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        // min-height keeps the modal tall enough that the DevicePicker's absolutely
+        // positioned dropdown (up to 320px) doesn't get clipped by modal-card's
+        // overflow:auto — this step otherwise has almost no other content.
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', minHeight: '360px' }}>
           <div className="field">
             <span>Device</span>
             <DevicePicker
