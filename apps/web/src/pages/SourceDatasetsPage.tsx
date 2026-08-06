@@ -88,6 +88,8 @@ export function SourceDatasetsPage() {
     setSelected((s) => { const next = { ...s }; delete next[typeId]; return next; });
   };
 
+  const [search, setSearch] = useState<Record<string, string>>({});
+
   const { isCollapsed, toggleGroup, toggleAll, anyCollapsed } = useTypeGroupCollapse('source', (data ?? []).map((g) => g.dataset_type_id));
 
   const goBack = () => {
@@ -152,6 +154,13 @@ export function SourceDatasetsPage() {
           </>}
         >
           <div className="type-group-actions">
+            <input
+              type="text"
+              className="folder-search-input"
+              placeholder="Filter folders…"
+              value={search[g.dataset_type_id] ?? ''}
+              onChange={(e) => setSearch((s) => ({ ...s, [g.dataset_type_id]: e.target.value }))}
+            />
             <button
               className="btn btn-sm btn-ghost"
               disabled={rescanTypeMut.isPending || g.reindexing}
@@ -184,9 +193,14 @@ export function SourceDatasetsPage() {
 
           {g.folders.length === 0 ? (
             <EmptyState size="small" message="No dataset folders found under this path." />
-          ) : (
+          ) : (() => {
+            const q = (search[g.dataset_type_id] ?? '').trim().toLowerCase();
+            const visible = q ? g.folders.filter((f) => f.sub_path.toLowerCase().includes(q)) : g.folders;
+            return visible.length === 0 ? (
+              <EmptyState size="small" message="No folders match the filter." />
+            ) : (
             <div className="folder-grid">
-              {g.folders.map((f) => {
+              {visible.map((f) => {
                 const key = `${g.dataset_type_id}::${f.sub_path}`;
                 const isBusy = busy === key || (ensureMut.isPending && ensureMut.variables?.sub_path === f.sub_path);
                 return (
@@ -256,7 +270,8 @@ export function SourceDatasetsPage() {
                 );
               })}
             </div>
-          )}
+            );
+          })()}
         </CollapsibleTypeGroup>
       ))}
     </section>

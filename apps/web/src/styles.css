@@ -1521,6 +1521,20 @@ tbody tr:hover {
 
 .type-group-actions {
   margin: -0.4rem 0 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.folder-search-input {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--text);
+  min-width: 180px;
 }
 
 .folder-grid {
@@ -2270,7 +2284,7 @@ td.nums {
   padding: 4px 12px;
   font-size: 11px;
   font-weight: 600;
-  background: var(--bg-card);
+  background: var(--bg-code);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   cursor: pointer;
@@ -2280,7 +2294,8 @@ td.nums {
   transition: opacity 0.15s;
 }
 .log-scroll-btn:hover {
-  background: var(--bg-hover);
+  background: #1a2740;
+  border-color: #3a5578;
 }
 
 /* ================ Training Wizard ================ */

@@ -109,6 +109,7 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
 
   // BUILT
   const [sourceIds, setSourceIds] = useState<string[]>([]);
+  const [sourceSearch, setSourceSearch] = useState('');
   // Anchor for shift-click range selection: the last row toggled without shift.
   const [lastPicked, setLastPicked] = useState<number | null>(null);
   const shiftHeld = useRef(false);
@@ -434,6 +435,13 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
                 READY <strong>{taskType}</strong> source datasets under <strong>{activeType?.name}</strong>
                 {' — '}{sourceIds.length} of {readySources.length} selected
               </p>
+              <input
+                type="text"
+                className="folder-search-input"
+                placeholder="Filter source datasets…"
+                value={sourceSearch}
+                onChange={(e) => setSourceSearch(e.target.value)}
+              />
               {(() => {
                 const pending = (sources ?? []).filter((s) => s.task_type === taskType && s.status === 'SCANNING').length;
                 return pending > 0 ? (
@@ -468,37 +476,48 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
                     message={`No READY ${taskType} source datasets for this type. Register and scan one first, or go back and change the task type.`}
                   />
                 )}
-                {readySources.map((s, i) => (
-                  // mousedown records the modifier and fires before the checkbox's
-                  // change event, so onChange can read it. Calling preventDefault on the
-                  // input's click instead would desync the controlled checkbox: the DOM
-                  // property never flips and React keeps rendering the previous value.
-                  <label
-                    key={s.id}
-                    className="check-row"
-                    onMouseDown={(e) => { shiftHeld.current = e.shiftKey; }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={sourceIds.includes(s.id)}
-                      onKeyDown={(e) => { shiftHeld.current = e.shiftKey; }}
-                      onChange={() => {
-                        const shift = shiftHeld.current;
-                        setSourceIds(pickSources(readySources, sourceIds, i, lastPicked, shift));
-                        if (!shift) setLastPicked(i);
-                      }}
-                    />
-                    <span>
-                      {s.name}
-                      <span className="check-sub">
-                        {s.sub_path ?? s.relative_path}
-                        {s.image_count !== null && s.image_count !== undefined
-                          ? ` · ${Number(s.image_count)} images`
-                          : ''}
+                {(() => {
+                  const q = sourceSearch.trim().toLowerCase();
+                  const visible = q
+                    ? readySources
+                        .map((s, i) => ({ s, i }))
+                        .filter(({ s }) => (s.name + ' ' + (s.sub_path ?? '')).toLowerCase().includes(q))
+                    : readySources.map((s, i) => ({ s, i }));
+                  if (visible.length === 0) {
+                    return <EmptyState size="small" message="No source datasets match the filter." />;
+                  }
+                  return visible.map(({ s, i }) => (
+                    // mousedown records the modifier and fires before the checkbox's
+                    // change event, so onChange can read it. Calling preventDefault on the
+                    // input's click instead would desync the controlled checkbox: the DOM
+                    // property never flips and React keeps rendering the previous value.
+                    <label
+                      key={s.id}
+                      className="check-row"
+                      onMouseDown={(e) => { shiftHeld.current = e.shiftKey; }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={sourceIds.includes(s.id)}
+                        onKeyDown={(e) => { shiftHeld.current = e.shiftKey; }}
+                        onChange={() => {
+                          const shift = shiftHeld.current;
+                          setSourceIds(pickSources(readySources, sourceIds, i, lastPicked, shift));
+                          if (!shift) setLastPicked(i);
+                        }}
+                      />
+                      <span>
+                        {s.name}
+                        <span className="check-sub">
+                          {s.sub_path ?? s.relative_path}
+                          {s.image_count !== null && s.image_count !== undefined
+                            ? ` · ${Number(s.image_count)} images`
+                            : ''}
+                        </span>
                       </span>
-                    </span>
-                  </label>
-                ))}
+                    </label>
+                  ));
+                })()}
               </div>
             </>
           )}
