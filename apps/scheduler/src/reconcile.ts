@@ -212,7 +212,86 @@ export async function reconcileStaleExecutions(
           return;
         }
 
-        // Other job types (dataset/model/cleanup): LOST + audit only for now.
+        // Dataset scans: the worker died mid-scan. Fail the scan row so the Jobs card
+        // stops showing a contradictory "lost (PENDING)" and the per-source
+        // PENDING/RUNNING uniqueness constraint frees the dataset for a rescan.
+        if (candidate.job_type === 'DATASET_SCAN') {
+          const failedScan = await trx
+            .updateTable('source_dataset_scans')
+            .set({
+              status: 'FAILED',
+              finished_at: sql`now()`,
+              error_code: 'EXECUTION_LOST',
+              error_message: 'Scan execution lost: worker stopped heartbeating',
+            })
+            .where('id', '=', candidate.job_id)
+            .where('status', 'in', ['PENDING', 'RUNNING'])
+            .executeTakeFirst();
+          if (failedScan && failedScan.numUpdatedRows !== 0n) {
+            await trx.insertInto('audit_logs').values({
+              actor_type: 'SYSTEM', actor_ref: 'scheduler', action_code: 'DATASET_SCAN_FAILED',
+              resource_type_code: 'SOURCE_DATASET_SCAN', resource_id: candidate.job_id, result: 'FAILURE',
+              correlation_id: candidate.correlation_id, error_code: 'EXECUTION_LOST',
+              metadata: { job_type: candidate.job_type },
+            }).execute();
+            result.failed += 1;
+          }
+          return;
+        }
+
+        // Dataset build / registered-dataset validation: fail the training dataset the
+        // same way the worker's own failure path does (INVALID), so it can be resubmitted.
+        if (candidate.job_type === 'DATASET_BUILD' || candidate.job_type === 'TRAINING_DATASET_SCAN') {
+          const failedDs = await trx
+            .updateTable('training_datasets')
+            .set({
+              status: 'INVALID',
+              failure_code: 'EXECUTION_LOST',
+              failure_message: 'Dataset job execution lost: worker stopped heartbeating',
+              build_finished_at: sql`now()`,
+            })
+            .where('id', '=', candidate.job_id)
+            .where('status', 'in', ['BUILDING', 'VALIDATING'])
+            .executeTakeFirst();
+          if (failedDs && failedDs.numUpdatedRows !== 0n) {
+            await trx.insertInto('audit_logs').values({
+              actor_type: 'SYSTEM', actor_ref: 'scheduler', action_code: 'TRAINING_DATASET_FAILED',
+              resource_type_code: 'TRAINING_DATASET', resource_id: candidate.job_id, result: 'FAILURE',
+              correlation_id: candidate.correlation_id, error_code: 'EXECUTION_LOST',
+              metadata: { job_type: candidate.job_type },
+            }).execute();
+            result.failed += 1;
+          }
+          return;
+        }
+
+        // Model ingest: the worker died mid-ingest; fail the task so the model page
+        // never hangs and the user can retry the ingest.
+        if (candidate.job_type === 'MODEL_INGEST') {
+          const failedIngest = await trx
+            .updateTable('model_ingest_tasks')
+            .set({
+              status: 'FAILED',
+              failure_code: 'EXECUTION_LOST',
+              failure_message: 'Ingest execution lost: worker stopped heartbeating',
+              finished_at: sql`now()`,
+            })
+            .where('id', '=', candidate.job_id)
+            .where('status', 'not in', ['COMPLETED', 'FAILED', 'CANCELLED'])
+            .executeTakeFirst();
+          if (failedIngest && failedIngest.numUpdatedRows !== 0n) {
+            await trx.insertInto('audit_logs').values({
+              actor_type: 'SYSTEM', actor_ref: 'scheduler', action_code: 'MODEL_INGEST_FAILED',
+              resource_type_code: 'MODEL_INGEST', resource_id: candidate.job_id, result: 'FAILURE',
+              correlation_id: candidate.correlation_id, error_code: 'EXECUTION_LOST',
+              metadata: { job_type: candidate.job_type },
+            }).execute();
+            result.failed += 1;
+          }
+          return;
+        }
+
+        // Other job types: LOST + audit only for now.
         if (candidate.job_type !== 'TRAINING') return;
 
         const jobRow = await trx.selectFrom('training_jobs').select('status')
