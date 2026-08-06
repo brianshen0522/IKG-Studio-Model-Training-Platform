@@ -2224,7 +2224,7 @@ td.nums {
   text-align: right;
 }
 
-.job-log-section { margin-bottom: 0; }
+.job-log-section { margin-bottom: 0; position: relative; }
 
 .job-log-content {
   /* Sole scroll container for the log — the <pre> inside must not cap its own
@@ -2252,6 +2252,27 @@ td.nums {
 .job-log-empty {
   color: var(--text-sub);
   font-style: italic;
+}
+
+.log-scroll-btn {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  color: var(--text);
+  z-index: 5;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: opacity 0.15s;
+}
+.log-scroll-btn:hover {
+  background: var(--bg-hover);
 }
 
 /* ================ Training Wizard ================ */

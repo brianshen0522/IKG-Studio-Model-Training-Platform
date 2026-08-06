@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiGet } from '../lib/api';
 import { useStopTrainingJob, useRetryTrainingJob } from '../lib/trainingActions';
@@ -8,6 +8,23 @@ import { EmptyState } from './EmptyState';
 import { StatusBadge } from './StatusBadge';
 import { useUiStore } from '../stores/ui';
 import { useUrlParam } from '../lib/urlState';
+
+/**
+ * Strip ANSI escape sequences and simulate terminal carriage-return behaviour:
+ * YOLO progress bars use `\r` to overwrite the same line. Splitting each `\n`-line
+ * on `\r` and keeping only the last fragment collapses hundreds of progress-bar
+ * updates into one final line per output line.
+ */
+function sanitizeLog(t: string): string {
+  return t
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
+    .replace(/\x1b[()][0-9A-Z]/g, '')
+    .split('\n')
+    .map((line) => line.split('\r').pop()!)
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trimEnd();
+}
 
 export interface JobItem {
   id: string;
@@ -143,6 +160,8 @@ export function JobDetailModal({ id, onClose }: { id: string; onClose: () => voi
   const [logContent, setLogContent] = useState<string | null>(null);
   const [logLoading, setLogLoading] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const logRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!logArtifact) return;
     let cancelled = false;
@@ -154,11 +173,7 @@ export function JobDetailModal({ id, onClose }: { id: string; onClose: () => voi
         })
         .then((t) => {
           if (cancelled) return;
-          const cleaned = t
-            .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
-            .replace(/\r\n/g, '\n')
-            .replace(/\r/g, '\n');
-          setLogContent(cleaned);
+          setLogContent(sanitizeLog(t));
         })
         .catch((e) => !cancelled && setLogError((e as Error).message))
         .finally(() => !cancelled && setLogLoading(false));
@@ -174,6 +189,19 @@ export function JobDetailModal({ id, onClose }: { id: string; onClose: () => voi
       if (iv) clearInterval(iv);
     };
   }, [logArtifact, data?.execution_status]);
+
+  // Auto-scroll to bottom when new log content arrives, unless the user scrolled up.
+  useEffect(() => {
+    const el = logRef.current;
+    if (autoScroll && el) el.scrollTop = el.scrollHeight;
+  }, [logContent, autoScroll]);
+
+  function onLogScroll() {
+    const el = logRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    setAutoScroll(atBottom);
+  }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -289,8 +317,15 @@ export function JobDetailModal({ id, onClose }: { id: string; onClose: () => voi
               </div>
 
               <div className="job-log-section">
-                <h4 style={{ margin: '0 0 6px', fontSize: 13, color: 'var(--text-sub)' }}>Log</h4>
-                <div className="job-log-content">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '0 0 6px' }}>
+                  <h4 style={{ margin: 0, fontSize: 13, color: 'var(--text-sub)' }}>Log</h4>
+                  {logContent && (
+                    <span style={{ fontSize: 11, color: 'var(--text-sub)' }}>
+                      {autoScroll ? 'Following' : 'Paused'} · {logContent.split('\n').length} lines
+                    </span>
+                  )}
+                </div>
+                <div className="job-log-content" ref={logRef} onScroll={onLogScroll}>
                   {logLoading && <div className="job-log-line">Loading log…</div>}
                   {logError && <div className="job-log-line job-log-error">{logError}</div>}
                   {/* The <pre> sets no height cap or overflow: .job-log-content is the
@@ -314,6 +349,18 @@ export function JobDetailModal({ id, onClose }: { id: string; onClose: () => voi
                     <div className="job-log-line job-log-success">Job completed successfully.</div>
                   )}
                 </div>
+                {logContent && !autoScroll && (
+                  <button
+                    className="log-scroll-btn"
+                    onClick={() => {
+                      setAutoScroll(true);
+                      const el = logRef.current;
+                      if (el) el.scrollTop = el.scrollHeight;
+                    }}
+                  >
+                    Scroll to bottom ↓
+                  </button>
+                )}
               </div>
             </>
           )}

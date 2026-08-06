@@ -299,10 +299,14 @@ function parseCsv(text: string): string[][] {
  * progress bars. Strip the escapes and turn each overwrite into its own line so the
  * file reads as plain text.
  */
+/** Strips ANSI escapes and collapses \r-overwritten progress-bar lines to their last fragment. */
 function sanitizeLog(text: string): string {
   return text
     .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
     .replace(/\x1b[()][0-9A-Z]/g, '')
-    .replace(/\n\r/g, '\n')
-    .split(/\r/).join('\n');
+    .split('\n')
+    .map((line) => line.split('\r').pop()!)
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trimEnd();
 }
