@@ -2118,6 +2118,71 @@ td.nums {
   border-radius: 4px;
 }
 
+/* ================ Training Curves ================ */
+.training-curves {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.curve-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+  padding: 12px;
+}
+
+.curve-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.curve-head h4 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.curve-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.curve-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-sub);
+}
+
+.curve-legend-item i {
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.curve-metric-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.curve-metric-legend .curve-legend-item i {
+  width: 16px;
+  height: 0;
+  border-radius: 0;
+}
+
+.curve-graph svg {
+  display: block;
+}
+
 /* ================ Job Components ================ */
 /* Job type tag.
    These used to be solid saturated fills with white text, which made the least important

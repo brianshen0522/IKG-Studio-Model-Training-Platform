@@ -6,6 +6,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { SkeletonLoader } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
 import { ChartGrid, ChartLightbox, TextArtifactModal, ARTIFACT_LABELS, isImageArtifact, isTextArtifact, type ChartArtifact } from '../components/ChartViewer';
+import { TrainingCurves } from '../components/TrainingCurves';
 import { Collapsible } from '../components/Collapsible';
 import { CopyButton } from '../components/CopyButton';
 import { JobDetailModal } from '../components/JobDetailModal';
@@ -144,6 +145,7 @@ export function TrainingJobDetail({ id, onBack }: { id: string; onBack: () => vo
   });
 
   const chartArts = artifacts.data?.filter((a) => CHART_TYPES.includes(a.artifact_type_code)) ?? [];
+  const resultsCsvArtifact = artifacts.data?.find((a) => a.artifact_type_code === 'RESULTS_CSV') ?? null;
   const otherArts = artifacts.data?.filter((a) => !CHART_TYPES.includes(a.artifact_type_code)) ?? [];
   const imageArts = otherArts.filter(isImageArtifact);
   const openArtifact = (a: Artifact) => {
@@ -241,6 +243,13 @@ export function TrainingJobDetail({ id, onBack }: { id: string; onBack: () => vo
               view on the right rather than buried under the tables. */}
           <div className={`detail-layout${chartArts.length ? '' : ' is-single'}`}>
             <div className="detail-main">
+              {resultsCsvArtifact && (
+                <section className="card">
+                  <h3 className="card-title">Training Curves</h3>
+                  <TrainingCurves artifactId={resultsCsvArtifact.id} />
+                </section>
+              )}
+
               <section className="card">
                 <h3 className="card-title">Run</h3>
                 <dl className="dl">

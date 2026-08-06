@@ -209,6 +209,9 @@ export class ModelsService {
       // The list is where models get compared, so the architecture and the image size
       // they were trained at have to come back with it, not only on the detail page.
       'architecture_metadata',
+      // Lets the compare view reach back to the producing training job for its
+      // per-epoch results.csv without a second round-trip per model.
+      'source_training_job_id',
     ]).orderBy('created_at', 'desc').limit(size).offset(offset).execute();
     return { items, total: Number(count), page: params.page, size };
   }

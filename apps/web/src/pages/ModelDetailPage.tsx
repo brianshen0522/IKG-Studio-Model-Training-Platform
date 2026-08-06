@@ -10,6 +10,7 @@ import { useMutation } from '@tanstack/react-query';
 import { apiSend } from '../lib/api';
 import { queryClient } from '../lib/queryClient';
 import { ChartGrid, ChartLightbox, TextArtifactModal, ARTIFACT_LABELS, isImageArtifact, isTextArtifact, type ChartArtifact } from '../components/ChartViewer';
+import { TrainingCurves } from '../components/TrainingCurves';
 import { Collapsible } from '../components/Collapsible';
 import { CopyButton } from '../components/CopyButton';
 import { buildYoloCommand } from '@model-trainer/shared-types';
@@ -187,6 +188,7 @@ export function ModelDetailPage({ id, onBack }: { id: string; onBack: () => void
   const hasMetrics = !!vs && Object.keys(vs).length > 0;
   const trainingArts = trainingArtifacts.data ?? [];
   const chartArts = trainingArts.filter((a) => CHART_TYPES.includes(a.artifact_type_code));
+  const resultsCsvArtifact = trainingArts.find((a) => a.artifact_type_code === 'RESULTS_CSV') ?? null;
   const modelArts = modelArtifacts.data ?? [];
   // The model page's artifacts are the training run's non-chart outputs (validation
   // batches, results.csv, training.log) plus anything attached to the model row.
@@ -305,6 +307,13 @@ export function ModelDetailPage({ id, onBack }: { id: string; onBack: () => void
                   <div><dt>Available</dt><dd>{formatDate(model.available_at)}</dd></div>
                 </dl>
               </section>
+
+              {resultsCsvArtifact && (
+                <section className="card">
+                  <h3 className="card-title">Training Curves</h3>
+                  <TrainingCurves artifactId={resultsCsvArtifact.id} />
+                </section>
+              )}
 
               {hasMetrics && (
                 <section className="card">

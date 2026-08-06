@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiGet, apiGetList } from '../lib/api';
 import { Modal } from './Modal';
 import { PrereqNotice } from './PrereqNotice';
+import { MultiModelCurves } from './TrainingCurves';
 
 interface DatasetType {
   id: string;
@@ -18,6 +19,7 @@ interface ModelOption {
   source_type: string;
   status: string;
   architecture_metadata?: Record<string, unknown> | null;
+  source_training_job_id: string | null;
 }
 
 interface PerClassMetric {
@@ -131,6 +133,12 @@ export function CompareModelsDialog({ onClose }: { onClose: () => void }) {
 
   const results = compareData?.results ?? [];
   const modelName = (id: string) => availableModels.find((m) => m.id === id)?.name ?? id;
+  const compareModels = selectedModelIds.map((id, i) => ({
+    id,
+    name: modelName(id),
+    color: SERIES_COLORS[i % SERIES_COLORS.length],
+    sourceTrainingJobId: availableModels.find((m) => m.id === id)?.source_training_job_id ?? null,
+  }));
 
   return (
     <Modal
@@ -271,7 +279,12 @@ export function CompareModelsDialog({ onClose }: { onClose: () => void }) {
           {isComparing ? (
             <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-sub)' }}>Loading results...</div>
           ) : (
-            <CompareChart results={results} modelName={modelName} selectedModelIds={selectedModelIds} datasetTypeName={datasetTypes.find((dt) => dt.id === datasetTypeId)?.name ?? ''} />
+            <>
+              <CompareChart results={results} modelName={modelName} selectedModelIds={selectedModelIds} datasetTypeName={datasetTypes.find((dt) => dt.id === datasetTypeId)?.name ?? ''} />
+              <div style={{ marginTop: '16px' }}>
+                <MultiModelCurves models={compareModels} />
+              </div>
+            </>
           )}
         </div>
       )}
