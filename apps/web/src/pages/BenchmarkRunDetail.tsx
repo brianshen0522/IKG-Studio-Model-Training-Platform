@@ -15,6 +15,14 @@ import {
   type ChartArtifact,
 } from '../components/ChartViewer';
 import { useStopBenchmarkRun, useRetryBenchmarkRun, canStop, canRetry, stopLabel } from '../lib/benchmarkActions';
+import { SearchableSelect, type SelectOption } from '../components/SearchableSelect';
+
+const LIST_STATUS_OPTIONS: SelectOption[] = [
+  { value: 'ALL', label: 'All Status' },
+  { value: 'COMPLETED', label: 'Completed' },
+  { value: 'RUNNING', label: 'Running / Queued' },
+  { value: 'FAILED', label: 'Failed' },
+];
 
 interface Evaluation {
   id: string;
@@ -296,15 +304,12 @@ export function BenchmarkRunDetail({ id, onBack }: { id: string; onBack: () => v
                   onChange={(e) => setSearch(e.target.value)}
                   style={{ width: '200px' }}
                 />
-                <select
+                <SearchableSelect
+                  options={LIST_STATUS_OPTIONS}
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                >
-                  <option value="ALL">All Status</option>
-                  <option value="COMPLETED">Completed</option>
-                  <option value="RUNNING">Running / Queued</option>
-                  <option value="FAILED">Failed</option>
-                </select>
+                  onChange={setStatusFilter}
+                  style={{ minWidth: '170px' }}
+                />
               </div>
             )}
           </div>
