@@ -1,0 +1,27 @@
+body {
+  font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  max-height: 22cm;
+  width: auto;
+  height: auto;
+  margin: 0.5em auto;
+  page-break-inside: avoid;
+  break-inside: avoid;
+  object-fit: contain;
+}
+
+h1, h2, h3, h4 {
+  page-break-after: avoid;
+  break-after: avoid;
+}
+
+p, li {
+  orphans: 3;
+  widows: 3;
+}

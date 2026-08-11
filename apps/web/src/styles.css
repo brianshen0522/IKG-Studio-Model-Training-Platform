@@ -532,6 +532,34 @@ select:not(.field select):focus {
   color: var(--text-sub);
 }
 
+/* Compact text search used beside dropdowns in table/list toolbars. Standalone
+   inputs do not inherit the themed `.field input` styles. */
+.filter-text-input {
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.filter-text-input::placeholder {
+  color: var(--text-sub);
+  opacity: 1;
+}
+
+.filter-text-input:hover {
+  border-color: var(--text-sub);
+}
+
+.filter-text-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
 /* ================ Page + Table ================ */
 .page-head {
   display: flex;

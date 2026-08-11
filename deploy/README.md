@@ -144,6 +144,10 @@ Check progress with:
 ./up.sh logs -f migrate bootstrap backend
 ```
 
+`up.sh` fixes the Compose project name to `ikg-studio-model-training-platform`, so
+managed container names start with that project name (for example,
+`ikg-studio-model-training-platform-backend-1`).
+
 ---
 
 ## 6. GPU details

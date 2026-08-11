@@ -7,7 +7,8 @@ DC="docker compose -f $ROOT/deploy/docker-compose.qa.yml"
 cd "$ROOT/deploy" || exit 1
 ENGINES="${*:-chromium firefox webkit}"
 
-# The QA stack (compose project `model-qa`) mounts ./qa-data at container paths and
+# The QA stack (compose project `ikg-studio-model-training-platform-qa`) mounts
+# ./qa-data at container paths and
 # serves the web app on 8088 — unlike the dev stack, where paths are host=container
 # and the app is on 8080. run.mjs defaults to the dev stack, so point it at QA here.
 export QA_URL=http://localhost:8088
@@ -21,7 +22,7 @@ for eng in $ENGINES; do
   echo "############################## $eng ##############################"
   $DC down -v >/dev/null 2>&1
   $DC up -d >/dev/null 2>&1
-  for i in $(seq 1 40); do st=$(docker inspect -f '{{.State.Health.Status}}' model-qa-backend-1 2>/dev/null); [ "$st" = "healthy" ] && break; sleep 2; done
+  for i in $(seq 1 40); do st=$(docker inspect -f '{{.State.Health.Status}}' ikg-studio-model-training-platform-qa-backend-1 2>/dev/null); [ "$st" = "healthy" ] && break; sleep 2; done
   $DC exec -T postgres psql -U migration_role -d model_trainer -c "UPDATE app.system_settings SET value='true'::jsonb WHERE setting_key IN ('model_download_allow_http','model_download_allow_private');" >/dev/null 2>&1
   QA_ENGINE=$eng node "$ROOT/qa/run.mjs" > "/tmp/qa_$eng.log" 2>&1
   passes=$(grep -ac '^  ✓' "/tmp/qa_$eng.log"); fails=$(grep -ac '^  ✗' "/tmp/qa_$eng.log")

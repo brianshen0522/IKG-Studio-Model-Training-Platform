@@ -1,4 +1,4 @@
-name: model-qa
+name: ikg-studio-model-training-platform-qa
 
 networks:
   qa:

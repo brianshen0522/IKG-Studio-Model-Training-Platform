@@ -299,6 +299,8 @@ export function BenchmarkRunDetail({ id, onBack }: { id: string; onBack: () => v
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <input
                   type="text"
+                  className="filter-text-input"
+                  aria-label="Filter evaluations by model or dataset"
                   placeholder="Filter by model/dataset..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}

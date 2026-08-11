@@ -18,6 +18,11 @@
 set -eu
 cd "$(dirname "$0")"
 
+# Keep every Compose-managed resource under the repository's project name instead
+# of Docker Compose's directory-derived default (`deploy`). This produces container
+# names such as `ikg-studio-model-training-platform-backend-1`.
+PROJECT_NAME=ikg-studio-model-training-platform
+
 DATA_ROOT=$(grep -E '^DATA_ROOT=' .env 2>/dev/null | tail -1 | cut -d= -f2-)
 
 if [ -z "${DATA_ROOT:-}" ]; then
@@ -59,7 +64,7 @@ OVERLAY=docker-compose.data-roots.yml
   done
 } > "$OVERLAY"
 
-docker compose -f docker-compose.yml $GPU_ARGS -f "$OVERLAY" "$@"
+docker compose --project-name "$PROJECT_NAME" -f docker-compose.yml $GPU_ARGS -f "$OVERLAY" "$@"
 STATUS=$?
 
 # After a successful `up`, confirm what training-worker actually got — GPU detection above
@@ -68,7 +73,7 @@ STATUS=$?
 if [ "$STATUS" -eq 0 ] && [ "${1:-}" = "up" ]; then
   echo "up.sh: checking training-worker GPU support (first torch import can take a while)…" >&2
   # Spinner so the wait doesn't look like a hang.
-  docker compose -f docker-compose.yml $GPU_ARGS -f "$OVERLAY" exec -T training-worker \
+  docker compose --project-name "$PROJECT_NAME" -f docker-compose.yml $GPU_ARGS -f "$OVERLAY" exec -T training-worker \
     uv run --no-sync python -c "import torch; print(torch.cuda.is_available())" 2>/dev/null > /tmp/up-cuda-check &
   CHECK_PID=$!
   i=0
