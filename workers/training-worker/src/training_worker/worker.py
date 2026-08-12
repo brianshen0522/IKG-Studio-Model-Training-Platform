@@ -61,7 +61,7 @@ class TrainingWorker:
     def _reclaim_orphaned(self) -> None:
         start_id = "0-0"
         while True:
-            start_id, messages = self.redis.xautoclaim(
+            start_id, messages, _deleted = self.redis.xautoclaim(
                 self.cfg.stream, self.cfg.group, self.cfg.consumer,
                 self.cfg.reclaim_idle_s * 1000, start_id,
             )
