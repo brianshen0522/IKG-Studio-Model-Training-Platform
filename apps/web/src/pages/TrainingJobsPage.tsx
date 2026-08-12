@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { apiGetList, apiGetAll } from '../lib/api';
+import { apiGet, apiGetList, apiGetAll } from '../lib/api';
 import { useStopTrainingJob, useRetryTrainingJob, canStop, canRetry, stopLabel } from '../lib/trainingActions';
 import { StatusBadge } from '../components/StatusBadge';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -71,7 +71,7 @@ export function TrainingJobsPage() {
 
   const { data: datasetTypesData } = useQuery({
     queryKey: ['tj-dt-filter'],
-    queryFn: () => apiGetAll<RefOption>('/admin/dataset-types'),
+    queryFn: () => apiGet<RefOption[]>('/dataset-types/options'),
   });
   const { data: modelsData } = useQuery({
     queryKey: ['tj-model-filter'],

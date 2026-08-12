@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { apiGetList, apiGetAll, apiSend } from '../lib/api';
+import { apiGet, apiGetList, apiGetAll, apiSend } from '../lib/api';
 import { queryClient } from '../lib/queryClient';
 import { useAuthStore } from '../stores/auth';
 import { Modal } from './Modal';
@@ -57,7 +57,7 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
   // Fetch Dataset Types
   const { data: datasetTypesData } = useQuery({
     queryKey: ['dataset-types-options'],
-    queryFn: () => apiGetAll<DatasetType>('/admin/dataset-types'),
+    queryFn: () => apiGet<DatasetType[]>('/dataset-types/options'),
   });
   const datasetTypes = datasetTypesData ?? [];
 

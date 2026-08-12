@@ -71,7 +71,7 @@ export function CompareModelsDialog({ onClose }: { onClose: () => void }) {
 
   const { data: datasetTypesData } = useQuery({
     queryKey: ['dataset-types-options'],
-    queryFn: () => apiGetAll<DatasetType>('/admin/dataset-types'),
+    queryFn: () => apiGet<DatasetType[]>('/dataset-types/options'),
   });
   const datasetTypes = datasetTypesData ?? [];
 

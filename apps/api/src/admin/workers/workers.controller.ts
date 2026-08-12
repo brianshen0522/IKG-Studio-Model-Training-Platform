@@ -2,7 +2,7 @@ import { Controller, Get } from '@nestjs/common';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { WorkersService } from './workers.service';
 
-@Roles('ADMIN')
+@Roles('ADMIN', 'USER')
 @Controller('admin/workers')
 export class WorkersController {
   constructor(private readonly service: WorkersService) {}

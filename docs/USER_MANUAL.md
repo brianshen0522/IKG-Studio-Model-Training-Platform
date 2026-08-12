@@ -155,7 +155,7 @@ Click a training curve chart to enlarge it in a lightbox:
 ![Enlarged training curve chart](manual-screenshots/17-model-chart-enlarged.png)
 
 From the model detail page you can also:
-- **Convert to OpenVINO** — opens a conversion wizard (device/precision options, then launches a Model Conversion job).
+- **Convert to OpenVINO** (admin only) — opens a conversion wizard (device/precision options, then launches a Model Conversion job).
   ![Convert to OpenVINO wizard](manual-screenshots/18-model-convert-openvino.png)
 - **Delete** the model.
 

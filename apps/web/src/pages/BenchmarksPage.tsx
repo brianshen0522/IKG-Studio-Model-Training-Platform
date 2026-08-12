@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { apiGetList, apiGetAll } from '../lib/api';
+import { apiGet, apiGetList, apiGetAll } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { SkeletonLoader } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
@@ -63,7 +63,7 @@ export function BenchmarksPage() {
 
   const { data: datasetTypesData } = useQuery({
     queryKey: ['dt-filter'],
-    queryFn: () => apiGetAll<RefOption>('/admin/dataset-types'),
+    queryFn: () => apiGet<RefOption[]>('/dataset-types/options'),
   });
   const { data: modelsData } = useQuery({
     queryKey: ['model-filter'],
