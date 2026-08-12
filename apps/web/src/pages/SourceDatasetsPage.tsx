@@ -10,6 +10,7 @@ import { useUrlParam } from '../lib/urlState';
 import { useUiStore } from '../stores/ui';
 import { CollapsibleTypeGroup, useTypeGroupCollapse } from '../components/CollapsibleTypeGroup';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { MultiSelect, type MultiSelectOption } from '../components/MultiSelect';
 import { SourceDatasetDetailPage } from './SourceDatasetDetailPage';
 
 interface Folder {
@@ -35,6 +36,17 @@ interface TypeGroup {
   inherited: boolean;
   reindexing: boolean;
   folders: Folder[];
+}
+
+const STATUS_ORDER = ['REGISTERED', 'SCANNING', 'READY', 'INVALID', 'NONE'] as const;
+
+function statusOptionsFor(folders: Folder[]): MultiSelectOption[] {
+  return STATUS_ORDER
+    .filter((s) => folders.some((f) => (f.status ?? 'NONE') === s))
+    .map((s) => {
+      const count = folders.filter((f) => (f.status ?? 'NONE') === s).length;
+      return { value: s, label: `${s === 'NONE' ? 'Not registered' : s} (${count})` };
+    });
 }
 
 export function SourceDatasetsPage() {
@@ -94,6 +106,7 @@ export function SourceDatasetsPage() {
   };
 
   const [search, setSearch] = useState<Record<string, string>>({});
+  const [statusFilter, setStatusFilter] = useState<Record<string, string[]>>({});
 
   const { isCollapsed, toggleGroup, toggleAll, anyCollapsed } = useTypeGroupCollapse('source', (data ?? []).map((g) => g.dataset_type_id));
 
@@ -166,6 +179,13 @@ export function SourceDatasetsPage() {
               value={search[g.dataset_type_id] ?? ''}
               onChange={(e) => setSearch((s) => ({ ...s, [g.dataset_type_id]: e.target.value }))}
             />
+            <MultiSelect
+              value={statusFilter[g.dataset_type_id] ?? []}
+              options={statusOptionsFor(g.folders)}
+              onChange={(v) => setStatusFilter((s) => ({ ...s, [g.dataset_type_id]: v }))}
+              placeholder="Status…"
+              minWidth={140}
+            />
             <button
               className="btn btn-sm btn-ghost"
               disabled={rescanTypeMut.isPending || g.reindexing}
@@ -216,7 +236,12 @@ export function SourceDatasetsPage() {
             <EmptyState size="small" message="No dataset folders found under this path." />
           ) : (() => {
             const q = (search[g.dataset_type_id] ?? '').trim().toLowerCase();
-            const visible = q ? g.folders.filter((f) => f.sub_path.toLowerCase().includes(q)) : g.folders;
+            const statusSel = statusFilter[g.dataset_type_id] ?? [];
+            const visible = g.folders.filter((f) => {
+              if (q && !f.sub_path.toLowerCase().includes(q)) return false;
+              if (statusSel.length > 0 && !statusSel.includes(f.status ?? 'NONE')) return false;
+              return true;
+            });
             return visible.length === 0 ? (
               <EmptyState size="small" message="No folders match the filter." />
             ) : (

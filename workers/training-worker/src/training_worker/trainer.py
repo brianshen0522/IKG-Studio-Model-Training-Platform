@@ -483,10 +483,13 @@ class Trainer:
     def _store_and_register(self, ctx, job_id, job_execution_id, correlation_id, best_pt, run_base_dir) -> dict:
         checksum = _sha256(best_pt)
         size = os.path.getsize(best_pt)
+        # The trained model is named after the training job (best.pt is only the
+        # Ultralytics working name inside the run dir).
+        model_fname = f"{_sanitize(ctx['name'])}.pt"
 
         # 1) MinIO artifact (best.pt dual-store, part 1).
         best_artifact_id = str(uuid.uuid4())
-        key = f"artifacts/training-job/{job_id}/{best_artifact_id}/best.pt"
+        key = f"artifacts/training-job/{job_id}/{best_artifact_id}/{model_fname}"
         try:
             up = self.storage.put_file(key, best_pt, "application/octet-stream")
         except Exception as e:  # noqa: BLE001
@@ -550,6 +553,7 @@ class Trainer:
             "checksum": checksum, "size": size, "relative_path": rel,
             "model_root_path": target_final,
             "best_artifact_id": best_artifact_id, "artifact": up, "architecture": arch,
+            "filename": model_fname,
             "chart_artifacts": chart_artifacts, "log_artifact": log_artifact,
         }
 
@@ -562,9 +566,9 @@ class Trainer:
                 "INSERT INTO artifacts (id, owner_type_code, owner_id, artifact_type_code, source_execution_id, "
                 "status, bucket_name, object_key, filename, mime_type, file_size_bytes, checksum, is_primary, "
                 "created_by_actor_type, created_by_actor_ref, verified_at) "
-                "VALUES (%s,'TRAINING_JOB',%s,'BEST_MODEL',%s,'VERIFIED',%s,%s,'best.pt','application/octet-stream',%s,%s,true,'WORKER',%s,now())",
+                "VALUES (%s,'TRAINING_JOB',%s,'BEST_MODEL',%s,'VERIFIED',%s,%s,%s,'application/octet-stream',%s,%s,true,'WORKER',%s,now())",
                 (result["best_artifact_id"], job_id, job_execution_id, result["artifact"]["bucket"],
-                 result["artifact"]["object_key"], result["size"], result["checksum"], self.cfg.consumer),
+                 result["artifact"]["object_key"], result["filename"], result["size"], result["checksum"], self.cfg.consumer),
             )
             # Training artifacts — each insert in its own savepoint so one failure
             # (e.g. an unknown type code) can't abort the whole completion transaction.
@@ -617,9 +621,9 @@ class Trainer:
                 "relative_path, model_path, original_filename, file_size_bytes, checksum_algorithm, checksum, "
                 "source_artifact_id, source_training_job_id, architecture_metadata, validation_summary, "
                 "available_at, created_by_user_id) "
-                "VALUES (%s,%s,%s,%s,'TRAINING','AVAILABLE',%s,%s,'best.pt',%s,'SHA-256',%s,%s,%s,%s,%s,now(),%s)",
+                "VALUES (%s,%s,%s,%s,'TRAINING','AVAILABLE',%s,%s,%s,%s,'SHA-256',%s,%s,%s,%s,%s,now(),%s)",
                 (model_id, ctx["name"], ctx["dataset_type_id"], ctx["task_type"],
-                 result["relative_path"], model_full_path, result["size"], result["checksum"],
+                 result["relative_path"], model_full_path, result["filename"], result["size"], result["checksum"],
                  result["best_artifact_id"], job_id,
                  json.dumps(result["architecture"]), json.dumps({"trained": True}), ctx["created_by"]),
             )

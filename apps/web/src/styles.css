@@ -2778,6 +2778,18 @@ td.nums {
   background: rgba(228, 93, 37, 0.12);
 }
 
+.select-option-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.select-option-check input {
+  accent-color: var(--primary);
+  flex: none;
+}
+
 /* ================ Notification list ================ */
 .notif-list {
   display: flex;

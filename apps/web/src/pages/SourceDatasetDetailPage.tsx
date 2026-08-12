@@ -85,6 +85,7 @@ const ISSUE_LABELS: Record<string, string> = {
   DATASET_DUPLICATE_CLASS_NAME: 'Duplicate class name in the class list',
   DATASET_DUPLICATE_IMAGE_STEM: 'Same image filename appears more than once',
   DATASET_IMAGE_INVALID: 'Image file unreadable or corrupt',
+  DATASET_IMAGE_INVALID_REMOVED: 'Corrupt image deleted with its label',
   DATASET_MISSING_LABEL: 'Image has no matching label',
   DATASET_MISSING_IMAGE: 'Label has no matching image',
   DATASET_CLASSES_FILE_NOT_FOUND: 'classes.txt not found in the dataset folder',

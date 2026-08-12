@@ -171,6 +171,21 @@ def _validate_label(path: str, rel: str, task_type: str, res: ScanResult) -> tup
     return valid, class_ids
 
 
+def _remove_invalid_pair(image_full: str, label_full: str | None) -> bool:
+    """Delete a corrupt image and its matching label. Returns True if the image
+    was removed (a label that fails to delete is left to surface as an orphan)."""
+    try:
+        os.remove(image_full)
+    except OSError:
+        return False
+    if label_full:
+        try:
+            os.remove(label_full)
+        except OSError:
+            pass
+    return True
+
+
 def _parse_classes_file(path: str, res: ScanResult) -> list[str] | None:
     try:
         with open(path, "r", encoding="utf-8-sig") as fh:
@@ -268,6 +283,7 @@ def scan(images_dir: str, labels_dir: str, classes_file: str | None,
     # deep-validate images + pair with labels
     class_object_counts: dict[int, int] = {}
     max_class_id = -1
+    removed_stems: set[str] = set()
     for idx, (stem, full) in enumerate(images.items()):
         meta = image_meta[stem]
         try:
@@ -279,6 +295,17 @@ def scan(images_dir: str, labels_dir: str, classes_file: str | None,
                 raise ValueError("non-positive dimensions")
             meta["width"], meta["height"] = w, h
         except Exception as e:
+            # An unreadable/corrupt image can never train and would fail every
+            # re-scan forever — delete it and its matching label so the pair can't
+            # keep blocking the dataset (deliberate override of the source-folder
+            # read-only rule). If deletion fails, keep the hard ERROR instead.
+            label_full = labels.get(stem)
+            if _remove_invalid_pair(full, label_full):
+                removed_stems.add(stem)
+                res.issue("WARNING", "DATASET_IMAGE_INVALID_REMOVED", image=meta["rel"],
+                          label=os.path.relpath(label_full, labels_dir) if label_full else None,
+                          error=str(e)[:200])
+                continue
             res.issue("ERROR", "DATASET_IMAGE_INVALID", image=meta["rel"], error=str(e)[:200])
 
         label_full = labels.get(stem)
@@ -310,6 +337,14 @@ def scan(images_dir: str, labels_dir: str, classes_file: str | None,
         if idx % 500 == 0:
             _report(40 + 45 * (idx + 1) / (len(images) or 1),
                     f"Validating image {idx + 1}/{len(images)}")
+
+    # Corrupt images (and their labels) were deleted in the loop above; drop them
+    # from the working sets so the orphan-label pass and the content hash match
+    # what is actually on disk now.
+    for stem in removed_stems:
+        images.pop(stem, None)
+        image_meta.pop(stem, None)
+        labels.pop(stem, None)
 
     for stem, full in labels.items():
         if stem not in images:
