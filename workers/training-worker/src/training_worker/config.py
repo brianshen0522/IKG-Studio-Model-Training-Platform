@@ -17,6 +17,9 @@ class Config:
         self.consumer = os.environ.get("WORKER_KEY", f"training-worker-{socket.gethostname()}")
         self.block_ms = int(os.environ.get("WORKER_BLOCK_MS", "5000"))
 
+        # Reclaim dispatch messages a dead consumer left in the group's pending list.
+        self.reclaim_idle_s = int(os.environ.get("WORKER_RECLAIM_IDLE_S", "90"))
+
         self.minio_endpoint = os.environ.get("MINIO_ENDPOINT", "localhost:9000")
         self.minio_access_key = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
         self.minio_secret_key = os.environ.get("MINIO_SECRET_KEY", "")

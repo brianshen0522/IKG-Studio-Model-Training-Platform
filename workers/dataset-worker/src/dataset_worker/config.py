@@ -24,6 +24,9 @@ class Config:
         # Poll one message at a time; block up to this many ms waiting.
         self.block_ms = int(os.environ.get("WORKER_BLOCK_MS", "5000"))
 
+        # Reclaim dispatch messages a dead consumer left in the group's pending list.
+        self.reclaim_idle_s = int(os.environ.get("WORKER_RECLAIM_IDLE_S", "90"))
+
     def pg_conninfo(self) -> str:
         return (
             f"host={self.pg_host} port={self.pg_port} dbname={self.pg_db} "

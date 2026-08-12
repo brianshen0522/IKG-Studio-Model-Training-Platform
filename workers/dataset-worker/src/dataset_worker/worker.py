@@ -61,6 +61,10 @@ class DatasetWorker:
         self.setup()
         while True:
             try:
+                self._reclaim_orphaned()
+            except (redislib.TimeoutError, redislib.ConnectionError) as e:
+                log.warn("orphan reclaim skipped", error=str(e)[:200])
+            try:
                 resp = self.redis.xreadgroup(
                     self.cfg.group, self.cfg.consumer,
                     {self.cfg.stream: ">"}, count=1, block=self.cfg.block_ms,
@@ -78,6 +82,23 @@ class DatasetWorker:
                         log.error("message handling failed", error=str(e)[:300], msg_id=msg_id)
                     finally:
                         self.redis.xack(self.cfg.stream, self.cfg.group, msg_id)
+
+    def _reclaim_orphaned(self) -> None:
+        start_id = "0-0"
+        while True:
+            start_id, messages = self.redis.xautoclaim(
+                self.cfg.stream, self.cfg.group, self.cfg.consumer,
+                self.cfg.reclaim_idle_s * 1000, start_id,
+            )
+            if not messages:
+                break
+            for msg_id, fields in messages:
+                try:
+                    self._handle(fields)
+                except Exception as e:  # noqa: BLE001
+                    log.error("reclaimed message handling failed", error=str(e)[:300], msg_id=msg_id)
+                finally:
+                    self.redis.xack(self.cfg.stream, self.cfg.group, msg_id)
 
     def _handle(self, fields: dict) -> None:
         event_type = fields.get("event_type")

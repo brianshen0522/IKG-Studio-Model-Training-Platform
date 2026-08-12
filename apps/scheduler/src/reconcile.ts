@@ -3,7 +3,7 @@ import type { Database, JobExecutionStatus } from '@model-trainer/db';
 import { logger } from './logger';
 import { dispatchTrainingRetry, TERMINAL_JOB_STATUSES } from './retry';
 
-const ACTIVE_STATUSES: JobExecutionStatus[] = ['ASSIGNED', 'CLAIMED', 'PREPARING', 'RUNNING'];
+const ACTIVE_STATUSES: JobExecutionStatus[] = ['CLAIMED', 'PREPARING', 'RUNNING'];
 
 export interface RetryOptions {
   maxTrainingAttempts: number;
