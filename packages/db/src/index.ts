@@ -499,6 +499,7 @@ export interface TrainingJobsTable {
   description: string | null;
   status: Generated<TrainingJobStatus>;
   training_dataset_id: string | null;
+  dataset_type_id: string;
   base_model_id: string | null;
   hyperparameters: Generated<Record<string, unknown>>;
   configuration_version: Generated<number>;

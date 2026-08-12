@@ -15,6 +15,20 @@ type Actor = { id: string; role: string };
 const err = (code: string, message: string, status: number, details?: Record<string, unknown>) =>
   new HttpException({ error: { code, message, details, requestId: '' } }, status);
 
+/** Training job names are unique (case-insensitive) within a dataset type. */
+async function assertJobNameAvailable(
+  exec: Transaction<Database>,
+  datasetTypeId: string,
+  name: string,
+) {
+  const dup = await exec.selectFrom('training_jobs as t')
+    .select('t.id')
+    .where('t.dataset_type_id', '=', datasetTypeId)
+    .where(sql`lower(t.name)`, '=', name.toLowerCase())
+    .executeTakeFirst();
+  if (dup) throw err(errorCode.TRAINING_JOB_NAME_TAKEN, `a training job named "${name}" already exists in this dataset type`, 409);
+}
+
 const FIELDS = [
   'id', 'name', 'description', 'status', 'training_dataset_id', 'base_model_id', 'hyperparameters',
   'configuration_version', 'configuration_hash', 'configuration_snapshot', 'row_version',
@@ -87,9 +101,12 @@ export class TrainingService {
         if (bm.task_type !== ds.task_type) throw err(errorCode.TRAINING_TASK_TYPE_MISMATCH, 'base model task type does not match dataset task type', 400);
       }
 
+      await assertJobNameAvailable(trx, ds.dataset_type_id, name);
+
       const { id } = await trx.insertInto('training_jobs').values({
         name, description: input.description ?? null, status: 'QUEUED',
-        training_dataset_id: input.training_dataset_id, base_model_id: baseModelId,
+        training_dataset_id: input.training_dataset_id, dataset_type_id: ds.dataset_type_id,
+        base_model_id: baseModelId,
         hyperparameters: hp, created_by_user_id: actor.id, updated_by_user_id: actor.id,
       }).returning('id').executeTakeFirstOrThrow();
 
@@ -134,11 +151,15 @@ export class TrainingService {
         if (bm.task_type !== ds.task_type) throw err(errorCode.TRAINING_TASK_TYPE_MISMATCH, 'base model task type does not match dataset task type', 400);
       }
 
+      const cloneName = `${src.name} (clone)`.slice(0, 150);
+      await assertJobNameAvailable(trx, ds.dataset_type_id, cloneName);
+
       const { id: newId } = await trx.insertInto('training_jobs').values({
-        name: `${src.name} (clone)`.slice(0, 150),
+        name: cloneName,
         description: src.description,
         status: 'QUEUED',
         training_dataset_id: src.training_dataset_id,
+        dataset_type_id: ds.dataset_type_id,
         base_model_id: src.base_model_id,
         hyperparameters: src.hyperparameters as Record<string, unknown>,
         cloned_from_job_id: src.id,
