@@ -71,6 +71,9 @@ export function SourceDatasetsPage() {
   const csrfToken = useAuthStore((s) => s.csrfToken);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmAll, setConfirmAll] = useState<{ id: string; name: string; count: number } | null>(null);
+  const [confirmArchive, setConfirmArchive] = useState<
+    { typeId: string; targets: { id: string; name: string }[] } | null
+  >(null);
   const [selectedId, setSelectedId] = useUrlParam('sourceDatasetId');
   const [showArchived, setShowArchived] = useState(false);
 
@@ -107,6 +110,30 @@ export function SourceDatasetsPage() {
   const rescanMut = useMutation({
     mutationFn: (id: string) => apiSend('POST', `/source-datasets/${id}/rescan`, undefined, csrfToken),
     onSettled: () => qc.invalidateQueries({ queryKey: ['source-datasets'] }),
+  });
+
+  /**
+   * Sequential rather than parallel: archiving is one-way, so a partial failure has to be
+   * reportable per dataset instead of collapsing into one rejected Promise.all. Volumes here
+   * are a handful of datasets, so the round trips cost nothing.
+   */
+  const archiveMut = useMutation({
+    mutationFn: async (targets: { id: string; name: string }[]) => {
+      const failed: string[] = [];
+      for (const t of targets) {
+        try {
+          await apiSend('POST', `/source-datasets/${t.id}/archive`, undefined, csrfToken);
+        } catch (e) {
+          failed.push(`${t.name}: ${(e as Error).message}`);
+        }
+      }
+      if (failed.length > 0) throw new Error(failed.join('; '));
+    },
+    onSettled: (_d, _e, vars) => {
+      qc.invalidateQueries({ queryKey: ['source-datasets'] });
+      if (vars && confirmArchive) unselectAll(confirmArchive.typeId);
+    },
+    onSuccess: () => setConfirmArchive(null),
   });
 
   const rescanTypeMut = useMutation({
@@ -267,6 +294,23 @@ export function SourceDatasetsPage() {
                   ? `Scan & register selected (${selected[g.dataset_type_id]!.size})`
                   : 'Scan & register all'}
             </button>
+            {(() => {
+              // Only registered folders have something to archive; unregistered ones in the
+              // selection are ignored rather than blocking the action.
+              const targets = g.folders
+                .filter((f) => selected[g.dataset_type_id]?.has(f.sub_path) && f.registered && f.source_dataset_id)
+                .map((f) => ({ id: f.source_dataset_id!, name: f.sub_path }));
+              if (targets.length === 0) return null;
+              return (
+                <button
+                  className="btn btn-sm btn-ghost"
+                  disabled={archiveMut.isPending}
+                  onClick={() => setConfirmArchive({ typeId: g.dataset_type_id, targets })}
+                >
+                  Archive selected ({targets.length})
+                </button>
+              );
+            })()}
           </div>
 
           {g.folders.length === 0 ? (
@@ -346,13 +390,28 @@ export function SourceDatasetsPage() {
                           {isBusy ? 'Registering…' : 'Register & scan'}
                         </button>
                       ) : (
-                        <button
-                          className="btn btn-sm btn-ghost"
-                          disabled={rescanMut.isPending || f.status === 'SCANNING'}
-                          onClick={() => f.source_dataset_id && rescanMut.mutate(f.source_dataset_id)}
-                        >
-                          {f.status === 'SCANNING' ? 'Scanning…' : 'Rescan'}
-                        </button>
+                        <>
+                          {!f.missing_on_disk && (
+                            <button
+                              className="btn btn-sm btn-ghost"
+                              disabled={rescanMut.isPending || f.status === 'SCANNING'}
+                              onClick={() => f.source_dataset_id && rescanMut.mutate(f.source_dataset_id)}
+                            >
+                              {f.status === 'SCANNING' ? 'Scanning…' : 'Rescan'}
+                            </button>
+                          )}
+                          <button
+                            className="btn btn-sm btn-ghost"
+                            disabled={f.status === 'SCANNING'}
+                            title={f.status === 'SCANNING' ? 'Cannot archive while scanning' : 'Archive this dataset'}
+                            onClick={() => f.source_dataset_id && setConfirmArchive({
+                              typeId: g.dataset_type_id,
+                              targets: [{ id: f.source_dataset_id, name: f.sub_path }],
+                            })}
+                          >
+                            Archive
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -390,6 +449,24 @@ export function SourceDatasetsPage() {
           )}
           </CollapsibleTypeGroup>
       ))}
+
+      {confirmArchive && (
+        <ConfirmDialog
+          title={confirmArchive.targets.length === 1 ? 'Archive dataset' : `Archive ${confirmArchive.targets.length} datasets`}
+          message={
+            (confirmArchive.targets.length === 1
+              ? `Archive "${confirmArchive.targets[0].name}"? Nothing on disk is touched — the dataset is hidden from the folder grid and can no longer be used for new training datasets.`
+              : `Archive ${confirmArchive.targets.length} datasets? Nothing on disk is touched — they are hidden from the folder grid and can no longer be used for new training datasets.`)
+            + '\n\nArchiving is one-way. To use these folders again, register them afresh.'
+          }
+          confirmLabel={archiveMut.isPending ? 'Archiving…' : 'Archive'}
+          danger
+          error={archiveMut.error ? (archiveMut.error as Error).message : null}
+          confirmDisabled={archiveMut.isPending}
+          onCancel={() => { archiveMut.reset(); setConfirmArchive(null); }}
+          onConfirm={() => archiveMut.mutate(confirmArchive.targets)}
+        />
+      )}
 
       {confirmAll && (
         <ConfirmDialog
