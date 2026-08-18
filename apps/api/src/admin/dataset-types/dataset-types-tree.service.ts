@@ -136,7 +136,10 @@ export class DatasetTypesTreeService {
 
     const usageMap = new Map<string, { s: number; d: number; m: number }>();
     for (const [table, key] of [['source_datasets', 's'], ['training_datasets', 'd'], ['models', 'm']] as const) {
-      const deletedFilter = table === 'training_datasets' ? ' AND archived_at IS NULL' : '';
+      // models has no archived_at exposed through this count, but source and training
+      // datasets do — both must exclude tombstones so these numbers agree with what
+      // actually blocks a delete.
+      const deletedFilter = table === 'models' ? '' : ' AND archived_at IS NULL';
       const r = await sql<{ dataset_type_id: string; count: string }>`
         SELECT dataset_type_id, count(*)::text AS count FROM app.${sql.raw(table)}
         WHERE dataset_type_id IS NOT NULL${sql.raw(deletedFilter)} GROUP BY dataset_type_id

@@ -366,11 +366,61 @@ export class DatasetTypesService {
   async enable(id: string, actor: Actor) { return this.setEnabled(id, true, actor); }
   async disable(id: string, actor: Actor) { return this.setEnabled(id, false, actor); }
 
-  private async countReferencing(exec: Exec, table: string, id: string): Promise<number> {
+  private async countReferencing(exec: Exec, table: string, id: string, liveOnly = false): Promise<number> {
+    const filter = liveOnly ? ' AND archived_at IS NULL' : '';
     const r = await sql<{ count: string }>`
-      SELECT count(*)::text AS count FROM app.${sql.raw(table)} WHERE dataset_type_id = ${id}
+      SELECT count(*)::text AS count FROM app.${sql.raw(table)}
+      WHERE dataset_type_id = ${id}${sql.raw(filter)}
     `.execute(exec);
     return Number(r.rows[0].count);
+  }
+
+  /**
+   * Archived source/training datasets are tombstones, but their FKs to dataset_types are
+   * ON DELETE RESTRICT all the same — so without this the documented "archive it, then
+   * delete the type" path is a dead end: archiving never lowers the count that blocks the
+   * delete. Tombstones are therefore purged along with the type that owned them.
+   *
+   * Their own dependents (scans, jobs, benchmark rows) are RESTRICT too, so anything still
+   * pointing at a tombstone is reported as a blocker rather than cascaded into — those are
+   * real history, not tombstones, and must not disappear because a type was tidied up.
+   */
+  private async purgeArchivedDatasets(trx: Exec, id: string): Promise<Record<string, number>> {
+    const held: Record<string, number> = {};
+    const countDependents = async (table: string, column: string, parentTable: string) => {
+      const r = await sql<{ count: string }>`
+        SELECT count(*)::text AS count FROM app.${sql.raw(table)} d
+        JOIN app.${sql.raw(parentTable)} p ON p.id = d.${sql.raw(column)}
+        WHERE p.dataset_type_id = ${id} AND p.archived_at IS NOT NULL
+      `.execute(trx);
+      return Number(r.rows[0].count);
+    };
+
+    const jobs = await countDependents('training_jobs', 'training_dataset_id', 'training_datasets');
+    const evals = await countDependents('benchmark_evaluations', 'training_dataset_id', 'training_datasets');
+    const runDatasets = await countDependents('benchmark_run_datasets', 'training_dataset_id', 'training_datasets');
+    if (jobs > 0) held.training_jobs = jobs;
+    if (evals > 0) held.benchmark_evaluations = evals;
+    if (runDatasets > 0) held.benchmark_run_datasets = runDatasets;
+    if (Object.keys(held).length > 0) return held;
+
+    // Scans are pure scan history for a dataset that is already a tombstone, so they go
+    // with it; nothing else references them.
+    await sql`
+      DELETE FROM app.source_dataset_scans s
+      USING app.source_datasets sd
+      WHERE s.source_dataset_id = sd.id
+        AND sd.dataset_type_id = ${id} AND sd.archived_at IS NOT NULL
+    `.execute(trx);
+    await sql`
+      DELETE FROM app.source_datasets
+      WHERE dataset_type_id = ${id} AND archived_at IS NOT NULL
+    `.execute(trx);
+    await sql`
+      DELETE FROM app.training_datasets
+      WHERE dataset_type_id = ${id} AND archived_at IS NOT NULL
+    `.execute(trx);
+    return held;
   }
 
   async delete(id: string, actor: Actor) {
@@ -382,12 +432,14 @@ export class DatasetTypesService {
       if (children.length > 0) throw err(errorCode.DATASET_TYPE_HAS_CHILDREN, 'cannot delete type with children', 400, { childCount: children.length });
 
       // Every one of these FKs is ON DELETE RESTRICT, so anything left unchecked
-      // surfaces as a raw Postgres error instead of a usable message. Counted here
-      // rather than via tree.usage() because that one filters archived training
-      // datasets — the FK does not care, so neither can this.
+      // surfaces as a raw Postgres error instead of a usable message. Only live rows
+      // block: archived ones are tombstones and get purged below, which is what makes
+      // "archive the datasets, then delete the type" actually terminate.
       const counts = {
-        training_datasets: await this.countReferencing(trx, 'training_datasets', id),
-        source_datasets: await this.countReferencing(trx, 'source_datasets', id),
+        training_datasets: await this.countReferencing(trx, 'training_datasets', id, true),
+        source_datasets: await this.countReferencing(trx, 'source_datasets', id, true),
+        // Not live-only: models are immutable artifacts and are never purged here, so
+        // an archived one still blocks — otherwise it would slip past into a raw FK error.
         models: await this.countReferencing(trx, 'models', id),
         model_ingest_tasks: await this.countReferencing(trx, 'model_ingest_tasks', id),
       };
@@ -402,10 +454,28 @@ export class DatasetTypesService {
           counts,
         );
       }
+
+      const purged = {
+        training_datasets: await this.countReferencing(trx, 'training_datasets', id),
+        source_datasets: await this.countReferencing(trx, 'source_datasets', id),
+      };
+      const heldByHistory = await this.purgeArchivedDatasets(trx, id);
+      if (Object.keys(heldByHistory).length > 0) {
+        const parts = Object.entries(heldByHistory)
+          .map(([t, n]) => `${n} ${t.replace(/_/g, ' ')}`).join(', ');
+        throw err(
+          errorCode.DATASET_TYPE_IN_USE,
+          `archived datasets under this type are still referenced by ${parts}, ` +
+          'which would be lost. Delete those first, or disable the type instead.',
+          400,
+          heldByHistory,
+        );
+      }
       await this.auditService.append({
         actorType: 'USER', actorUserId: actor.id, actionCode: 'DATASET_TYPE_DELETED',
         resourceTypeCode: 'DATASET_TYPE', resourceId: id, result: 'SUCCESS', correlationId,
         beforeSnapshot: row as unknown as Record<string, unknown>,
+        metadata: { purged_archived: purged },
       }, trx);
       await trx.deleteFrom('dataset_types').where('id', '=', id).execute();
       await this.outboxService.enqueue({
