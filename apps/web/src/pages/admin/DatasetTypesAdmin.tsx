@@ -8,6 +8,7 @@ import { EmptyState } from '../../components/EmptyState';
 import { queryClient } from '../../lib/queryClient';
 import { useAuthStore } from '../../stores/auth';
 import { NewDatasetTypeDialog } from '../../components/NewDatasetTypeDialog';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 
 interface TreeNode {
   id: string;
@@ -38,6 +39,7 @@ function TreeNodeRow({
   toggle,
   onToggleEnabled,
   onEdit,
+  onDelete,
   actionPending,
 }: {
   node: TreeNode;
@@ -46,6 +48,7 @@ function TreeNodeRow({
   toggle: (id: string) => void;
   onToggleEnabled: (id: string, verb: string) => void;
   onEdit: (node: TreeNode) => void;
+  onDelete: (node: TreeNode) => void;
   actionPending: boolean;
 }) {
   const hasChildren = node.children.length > 0;
@@ -105,10 +108,19 @@ function TreeNodeRow({
                  className="btn btn-sm"
                  disabled={actionPending}
                  onClick={() => onToggleEnabled(node.id, 'enable')}
-               >
-                 Enable
-               </button>
-             )}
+                 >
+                   Enable
+                 </button>
+               )}
+               {!node.is_system && (
+                 <button
+                   className="btn btn-sm btn-danger"
+                   disabled={actionPending}
+                   onClick={() => onDelete(node)}
+                 >
+                   Delete
+                 </button>
+               )}
            </div>
          </td>
       </tr>
@@ -121,6 +133,7 @@ function TreeNodeRow({
            toggle={toggle}
            onToggleEnabled={onToggleEnabled}
            onEdit={onEdit}
+           onDelete={onDelete}
            actionPending={actionPending}
          />
        ))}
@@ -131,6 +144,7 @@ function TreeNodeRow({
 export function DatasetTypesAdmin() {
   const [showNew, setShowNew] = useState(false);
   const [editingNode, setEditingNode] = useState<TreeNode | null>(null);
+  const [deletingNode, setDeletingNode] = useState<TreeNode | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const csrfToken = useAuthStore((s) => s.csrfToken);
 
@@ -143,6 +157,14 @@ export function DatasetTypesAdmin() {
     mutationFn: ({ id, verb }: { id: string; verb: string }) =>
       apiSend('POST', `/admin/dataset-types/${id}/${verb}`, undefined, csrfToken),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-dataset-types-tree'] }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => apiSend('DELETE', `/admin/dataset-types/${id}`, undefined, csrfToken),
+    onSuccess: () => {
+      setDeletingNode(null);
+      queryClient.invalidateQueries({ queryKey: ['admin-dataset-types-tree'] });
+    },
   });
 
   function toggleNode(id: string) {
@@ -195,6 +217,7 @@ export function DatasetTypesAdmin() {
            expanded={expanded}
            toggle={toggleNode}
            onToggleEnabled={(id, verb) => action.mutate({ id, verb })}
+           onDelete={setDeletingNode}
            actionPending={action.isPending}
          />
        ))}
@@ -202,6 +225,33 @@ export function DatasetTypesAdmin() {
           </table>
         </div>
       )}
+
+      {deletingNode && (() => {
+        // Mirrors the server's ON DELETE RESTRICT checks so the blockers are named
+        // before the request rather than as a 400. usage.dataset_count excludes
+        // archived training datasets while the FK does not, so the server can still
+        // refuse when this looks clear — its message is shown if that happens.
+        const u = deletingNode.usage;
+        const blockers: string[] = [];
+        if (u.direct_child_count > 0) blockers.push(`${u.direct_child_count} child type(s)`);
+        if (u.dataset_count > 0) blockers.push(`${u.dataset_count} training dataset(s)`);
+        if (u.source_dataset_count > 0) blockers.push(`${u.source_dataset_count} source dataset(s)`);
+        if (u.model_count > 0) blockers.push(`${u.model_count} model(s)`);
+        return (
+          <ConfirmDialog
+            title={`Delete "${deletingNode.name}"`}
+            message={blockers.length > 0
+              ? `This type is still referenced by ${blockers.join(', ')} and cannot be deleted. Archive or remove them first, or disable the type instead.`
+              : 'Delete this dataset type? Nothing on disk is touched — only the type and its cached folder index are removed. This cannot be undone.'}
+            confirmLabel={deleteMut.isPending ? 'Deleting…' : 'Delete'}
+            danger
+            error={deleteMut.error ? (deleteMut.error as Error).message : null}
+            confirmDisabled={blockers.length > 0 || deleteMut.isPending}
+            onCancel={() => { deleteMut.reset(); setDeletingNode(null); }}
+            onConfirm={() => deleteMut.mutate(deletingNode.id)}
+          />
+        );
+      })()}
 
       {showNew && (
          <NewDatasetTypeDialog onClose={() => setShowNew(false)} />

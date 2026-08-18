@@ -5,11 +5,18 @@ interface ConfirmDialogProps {
   message: string;
   confirmLabel?: string;
   danger?: boolean;
+  /** Server-side failure to show in place, so the dialog can stay open for a retry. */
+  error?: string | null;
+  /** Greys out the confirm button — for preconditions known before the request. */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
 
-export function ConfirmDialog({ title = 'Confirm', message, confirmLabel = 'Confirm', danger, onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({
+  title = 'Confirm', message, confirmLabel = 'Confirm', danger,
+  error, confirmDisabled, onConfirm, onCancel,
+}: ConfirmDialogProps) {
   // Blocks separated by a blank line render as distinct paragraphs; the first is the
   // primary warning, any further block (e.g. "used by N job(s)...") is secondary
   // context and gets a quieter, boxed treatment so it doesn't compete for attention.
@@ -22,7 +29,14 @@ export function ConfirmDialog({ title = 'Confirm', message, confirmLabel = 'Conf
       footer={
         <>
           <button className="btn btn-sm btn-ghost" onClick={onCancel}>Cancel</button>
-          <button className={`btn btn-sm ${danger ? 'btn-danger' : ''}`} onClick={onConfirm} autoFocus>{confirmLabel}</button>
+          <button
+            className={`btn btn-sm ${danger ? 'btn-danger' : ''}`}
+            onClick={onConfirm}
+            disabled={confirmDisabled}
+            autoFocus
+          >
+            {confirmLabel}
+          </button>
         </>
       }
     >
@@ -33,6 +47,7 @@ export function ConfirmDialog({ title = 'Confirm', message, confirmLabel = 'Conf
           {rest.map((block, i) => (
             <p className="confirm-dialog-context" key={i}>{block}</p>
           ))}
+          {error && <p className="form-error">{error}</p>}
         </div>
       </div>
     </Modal>

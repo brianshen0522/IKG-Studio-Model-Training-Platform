@@ -366,6 +366,13 @@ export class DatasetTypesService {
   async enable(id: string, actor: Actor) { return this.setEnabled(id, true, actor); }
   async disable(id: string, actor: Actor) { return this.setEnabled(id, false, actor); }
 
+  private async countReferencing(exec: Exec, table: string, id: string): Promise<number> {
+    const r = await sql<{ count: string }>`
+      SELECT count(*)::text AS count FROM app.${sql.raw(table)} WHERE dataset_type_id = ${id}
+    `.execute(exec);
+    return Number(r.rows[0].count);
+  }
+
   async delete(id: string, actor: Actor) {
     const correlationId = crypto.randomUUID();
     return this.db.transaction().execute(async (trx) => {
@@ -373,8 +380,28 @@ export class DatasetTypesService {
       if (row.is_system) throw err(errorCode.DATASET_TYPE_SYSTEM_PROTECTED, 'system type cannot be deleted', 409);
       const children = await trx.selectFrom('dataset_types').select('id').where('parent_id', '=', id).execute();
       if (children.length > 0) throw err(errorCode.DATASET_TYPE_HAS_CHILDREN, 'cannot delete type with children', 400, { childCount: children.length });
-      const dsCount = await trx.selectFrom('training_datasets').select(sql<number>`count(*)`.as('count')).where('dataset_type_id', '=', id).executeTakeFirstOrThrow();
-      if (dsCount.count > 0) throw err(errorCode.DATASET_TYPE_IN_USE, 'cannot delete type with associated datasets', 400, { datasetCount: dsCount.count });
+
+      // Every one of these FKs is ON DELETE RESTRICT, so anything left unchecked
+      // surfaces as a raw Postgres error instead of a usable message. Counted here
+      // rather than via tree.usage() because that one filters archived training
+      // datasets — the FK does not care, so neither can this.
+      const counts = {
+        training_datasets: await this.countReferencing(trx, 'training_datasets', id),
+        source_datasets: await this.countReferencing(trx, 'source_datasets', id),
+        models: await this.countReferencing(trx, 'models', id),
+        model_ingest_tasks: await this.countReferencing(trx, 'model_ingest_tasks', id),
+      };
+      const blocking = Object.entries(counts).filter(([, n]) => n > 0);
+      if (blocking.length > 0) {
+        const parts = blocking.map(([t, n]) => `${n} ${t.replace(/_/g, ' ')}`).join(', ');
+        throw err(
+          errorCode.DATASET_TYPE_IN_USE,
+          `cannot delete a dataset type still referenced by ${parts}. ` +
+          'Archive or remove them first, or disable the type instead.',
+          400,
+          counts,
+        );
+      }
       await this.auditService.append({
         actorType: 'USER', actorUserId: actor.id, actionCode: 'DATASET_TYPE_DELETED',
         resourceTypeCode: 'DATASET_TYPE', resourceId: id, result: 'SUCCESS', correlationId,
