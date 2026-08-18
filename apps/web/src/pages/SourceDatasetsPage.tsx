@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiGet, apiSend } from '../lib/api';
+import { apiGet, apiGetAll, apiSend } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { SkeletonLoader } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
@@ -38,6 +38,21 @@ interface TypeGroup {
   folders: Folder[];
 }
 
+/**
+ * Archived source datasets are excluded from `by-type` (the grid is keyed on folders
+ * that are still claimable), so without this they become unreachable: the detail page
+ * is only linked from the grid, and training datasets list their inputs by id. Fetched
+ * separately and shown read-only — archiving is one-way by design, since the folder it
+ * pointed at is typically gone or re-registered by then.
+ */
+interface ArchivedItem {
+  id: string;
+  name: string;
+  dataset_type_id: string;
+  relative_path: string;
+  archived_at: string | null;
+}
+
 const STATUS_ORDER = ['REGISTERED', 'SCANNING', 'READY', 'INVALID', 'NONE'] as const;
 
 function statusOptionsFor(folders: Folder[]): MultiSelectOption[] {
@@ -55,12 +70,28 @@ export function SourceDatasetsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmAll, setConfirmAll] = useState<{ id: string; name: string; count: number } | null>(null);
   const [selectedId, setSelectedId] = useUrlParam('sourceDatasetId');
+  const [showArchived, setShowArchived] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['source-datasets', 'by-type'],
     refetchInterval: 5000,
     queryFn: () => apiGet<TypeGroup[]>('/source-datasets/by-type'),
   });
+
+  // `archived=true` on the list endpoint means "don't filter", not "only archived",
+  // so narrow it here rather than adding a second server-side flag.
+  const archived = useQuery({
+    queryKey: ['source-datasets', 'archived'],
+    enabled: showArchived,
+    queryFn: async () =>
+      (await apiGetAll<ArchivedItem>('/source-datasets?archived=true')).filter((d) => d.archived_at),
+  });
+
+  const archivedByType = new Map<string, ArchivedItem[]>();
+  for (const d of archived.data ?? []) {
+    const list = archivedByType.get(d.dataset_type_id);
+    if (list) list.push(d); else archivedByType.set(d.dataset_type_id, [d]);
+  }
 
   const ensureMut = useMutation({
     mutationFn: (f: { dataset_type_id: string; sub_path: string; task_type?: string }) =>
@@ -139,6 +170,10 @@ export function SourceDatasetsPage() {
             {anyCollapsed ? 'Expand all' : 'Collapse all'}
           </button>
         )}
+        <label className="check-row" style={{ gap: 6 }} title="Archived datasets are hidden from the folder grid but remain readable">
+          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+          <span>Show archived</span>
+        </label>
         {data && <span className="count">{totalFolders} folders</span>}
       </header>
 
@@ -318,6 +353,33 @@ export function SourceDatasetsPage() {
             </div>
             );
           })()}
+
+          {showArchived && (archivedByType.get(g.dataset_type_id)?.length ?? 0) > 0 && (
+            <>
+              <div className="folder-archived-head">
+                Archived ({archivedByType.get(g.dataset_type_id)!.length})
+              </div>
+              <div className="folder-grid">
+                {archivedByType.get(g.dataset_type_id)!.map((d) => (
+                  <div
+                    className="folder-card is-archived"
+                    key={d.id}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setSelectedId(d.id)}
+                  >
+                    <div className="folder-card-head">
+                      <span className="folder-name">{d.name}</span>
+                      <StatusBadge status="ARCHIVED" />
+                    </div>
+                    <div className="folder-meta"><code>{d.relative_path}</code></div>
+                    {d.archived_at && (
+                      <div className="folder-sub">Archived {formatDate(d.archived_at)}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
           </CollapsibleTypeGroup>
       ))}
 

@@ -107,6 +107,7 @@ export function SourceDatasetDetailPage({ id, onBack }: { id: string; onBack: ()
   const qc = useQueryClient();
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [confirmClearOverride, setConfirmClearOverride] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
 
   const { data: ds, isLoading, error } = useQuery({
     queryKey: ['source-dataset', id],
@@ -149,6 +150,15 @@ export function SourceDatasetDetailPage({ id, onBack }: { id: string; onBack: ()
     },
   });
 
+  const archiveMut = useMutation({
+    mutationFn: () => apiSend('POST', `/source-datasets/${id}/archive`, undefined, csrfToken),
+    onSuccess: () => {
+      setConfirmArchive(false);
+      qc.invalidateQueries({ queryKey: ['source-dataset', id] });
+      qc.invalidateQueries({ queryKey: ['source-datasets'] });
+    },
+  });
+
   const scan = ds?.latest_scan ?? null;
   const canOverride = !!ds && OVERRIDABLE_SOURCES.has(scan?.classes_source ?? null);
 
@@ -187,7 +197,17 @@ export function SourceDatasetDetailPage({ id, onBack }: { id: string; onBack: ()
             {ds.status === 'SCANNING' ? 'Scanning…' : 'Rescan'}
           </button>
         )}
+        {ds && !ds.archived_at && (
+          <button
+            className="btn btn-sm btn-ghost"
+            disabled={archiveMut.isPending || ds.status === 'SCANNING'}
+            onClick={() => setConfirmArchive(true)}
+          >
+            Archive
+          </button>
+        )}
       </div>
+      {archiveMut.error && <div className="error-banner">{(archiveMut.error as Error).message}</div>}
 
       {isLoading && <SkeletonLoader rows={5} cols={4} />}
       {error && (
@@ -372,6 +392,16 @@ export function SourceDatasetDetailPage({ id, onBack }: { id: string; onBack: ()
           danger
           onCancel={() => setConfirmClearOverride(false)}
           onConfirm={() => { setConfirmClearOverride(false); overrideMut.mutate(null); }}
+        />
+      )}
+      {confirmArchive && (
+        <ConfirmDialog
+          title="Archive Source Dataset"
+          message="Archive this source dataset? Nothing on disk is deleted — it is hidden from browsing and registration, and existing training datasets built from it are unaffected. You can register the same folder again afterwards."
+          confirmLabel="Archive"
+          danger
+          onCancel={() => setConfirmArchive(false)}
+          onConfirm={() => archiveMut.mutate()}
         />
       )}
     </section>

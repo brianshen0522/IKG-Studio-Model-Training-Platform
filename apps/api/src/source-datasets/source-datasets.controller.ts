@@ -120,6 +120,12 @@ export class SourceDatasetsController {
     return this.service.rescan(id, actorOf(req));
   }
 
+  @Post(':id/archive')
+  @HttpCode(200)
+  archive(@Param('id') id: string, @Req() req: Request) {
+    return this.service.archive(id, actorOf(req));
+  }
+
   @Post(':id/classes-override')
   @HttpCode(200)
   setClassesOverride(

@@ -605,6 +605,38 @@ export class SourceDatasetsService {
   }
 
   /**
+   * Soft delete. Nothing on disk is touched — the source folder is read-only and the
+   * row is kept because source_dataset_scans FKs it with ON DELETE RESTRICT and built
+   * training datasets record their inputs by id. Archiving hides it from browse /
+   * available / registration and frees its (dataset_type_id, sub_path) slot, which is
+   * what makes a dataset type's dataset_path changeable again.
+   */
+  async archive(id: string, actor: Actor) {
+    const correlationId = randomUUID();
+    return this.db.transaction().execute(async (trx) => {
+      const sd = await trx.selectFrom('source_datasets').selectAll().where('id', '=', id).forUpdate().executeTakeFirst();
+      if (!sd) throw err(errorCode.SOURCE_DATASET_NOT_FOUND, 'source dataset not found', 404);
+      if (sd.archived_at) throw err(errorCode.SOURCE_DATASET_ALREADY_ARCHIVED, 'source dataset is already archived', 409);
+      if (sd.status === 'SCANNING') {
+        throw err(errorCode.DATASET_SCAN_ALREADY_RUNNING, 'cannot archive while a scan is running', 409);
+      }
+      await trx.updateTable('source_datasets').set({
+        archived_at: sql`now()`, archived_by_user_id: actor.id,
+        status: 'ARCHIVED', updated_at: sql`now()`, updated_by_user_id: actor.id,
+        row_version: sql`row_version + 1`,
+      }).where('id', '=', id).execute();
+      const row = await trx.selectFrom('source_datasets').select(FIELDS).where('id', '=', id).executeTakeFirstOrThrow();
+      await this.auditService.append({
+        actorType: 'USER', actorUserId: actor.id, actionCode: 'SOURCE_DATASET_ARCHIVED',
+        resourceTypeCode: 'SOURCE_DATASET', resourceId: id, result: 'SUCCESS', correlationId,
+        beforeSnapshot: { status: sd.status, archived_at: sd.archived_at },
+        afterSnapshot: { status: row.status, archived_at: row.archived_at },
+      }, trx);
+      return row;
+    });
+  }
+
+  /**
    * Every YOLO label's first field is a class index that must fall inside the class
    * list (0 .. count-1). A list that is shorter than what the labels reference would
    * make the next training build fail, so the save is rejected up front rather than

@@ -1612,6 +1612,18 @@ tbody tr:hover {
   border-color: var(--primary);
 }
 
+.folder-card.is-archived {
+  opacity: 0.6;
+  border-left-color: var(--border);
+}
+
+.folder-archived-head {
+  margin: 1rem 0 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-sub);
+}
+
 .folder-card-head {
   display: flex;
   align-items: center;
