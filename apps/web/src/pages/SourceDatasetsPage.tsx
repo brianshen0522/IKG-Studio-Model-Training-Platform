@@ -391,15 +391,13 @@ export function SourceDatasetsPage() {
                         </button>
                       ) : (
                         <>
-                          {!f.missing_on_disk && (
-                            <button
-                              className="btn btn-sm btn-ghost"
-                              disabled={rescanMut.isPending || f.status === 'SCANNING'}
-                              onClick={() => f.source_dataset_id && rescanMut.mutate(f.source_dataset_id)}
-                            >
-                              {f.status === 'SCANNING' ? 'Scanning…' : 'Rescan'}
-                            </button>
-                          )}
+                          <button
+                            className="btn btn-sm btn-ghost"
+                            disabled={rescanMut.isPending || f.status === 'SCANNING'}
+                            onClick={() => f.source_dataset_id && rescanMut.mutate(f.source_dataset_id)}
+                          >
+                            {f.status === 'SCANNING' ? 'Scanning…' : 'Rescan'}
+                          </button>
                           <button
                             className="btn btn-sm btn-ghost"
                             disabled={f.status === 'SCANNING'}

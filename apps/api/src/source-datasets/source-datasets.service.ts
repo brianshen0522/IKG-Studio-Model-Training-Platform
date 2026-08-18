@@ -409,7 +409,12 @@ export class SourceDatasetsService {
       .where('sd.archived_at', 'is', null)
       .execute();
     const regByTypeSub = new Map<string, (typeof registered)[number]>();
-    for (const r of registered) regByTypeSub.set(`${r.dataset_type_id}::${r.sub_path ?? ''}`, r);
+    const registeredByType = new Map<string, typeof registered>();
+    for (const r of registered) {
+      regByTypeSub.set(`${r.dataset_type_id}::${r.sub_path ?? ''}`, r);
+      const list = registeredByType.get(r.dataset_type_id);
+      if (list) list.push(r); else registeredByType.set(r.dataset_type_id, [r]);
+    }
 
     const index = await this.db.selectFrom('dataset_directory_index')
       .select(['dataset_type_id', 'sub_path', 'image_count']).execute();
@@ -460,8 +465,7 @@ export class SourceDatasetsService {
       // stored relative_path is a snapshot and is never rewritten) or the folder is moved
       // on disk. Appended here so it stays reachable and can be archived.
       const indexed = new Set(found.map((r) => r.sub_path));
-      for (const reg of registered) {
-        if (reg.dataset_type_id !== t.id) continue;
+      for (const reg of registeredByType.get(t.id) ?? []) {
         if (indexed.has(reg.sub_path ?? '')) continue;
         folders.push({
           sub_path: reg.sub_path ?? reg.name, path: `${eff.dataset_path}/${reg.sub_path ?? ''}`,
