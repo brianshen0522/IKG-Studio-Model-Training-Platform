@@ -450,8 +450,33 @@ export class SourceDatasetsService {
           class_count: reg?.class_count ?? null,
           classes_source: reg?.classes_source ?? null,
           last_scan_at: reg?.last_scan_at ?? null,
+          missing_on_disk: false,
         };
       });
+
+      // Folders come from the directory index, so a registered dataset whose folder is
+      // no longer indexed produces no card at all — it silently vanishes from the UI while
+      // still holding an FK on the type. That happens whenever dataset_path changes (the
+      // stored relative_path is a snapshot and is never rewritten) or the folder is moved
+      // on disk. Appended here so it stays reachable and can be archived.
+      const indexed = new Set(found.map((r) => r.sub_path));
+      for (const reg of registered) {
+        if (reg.dataset_type_id !== t.id) continue;
+        if (indexed.has(reg.sub_path ?? '')) continue;
+        folders.push({
+          sub_path: reg.sub_path ?? reg.name, path: `${eff.dataset_path}/${reg.sub_path ?? ''}`,
+          image_count_on_disk: 0,
+          registered: true,
+          source_dataset_id: reg.id,
+          status: reg.status,
+          task_type: reg.task_type,
+          matched_pair_count: reg.matched_pair_count ?? null,
+          class_count: reg.class_count ?? null,
+          classes_source: reg.classes_source ?? null,
+          last_scan_at: reg.last_scan_at ?? null,
+          missing_on_disk: true,
+        });
+      }
 
       groups.push({
         dataset_type_id: t.id, name: t.name,

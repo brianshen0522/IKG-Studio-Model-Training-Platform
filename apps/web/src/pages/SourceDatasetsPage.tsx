@@ -25,6 +25,8 @@ interface Folder {
   class_count: number | null;
   classes_source: string | null;
   last_scan_at: string | null;
+  /** Registered, but its folder is no longer in the directory index — see browseByType. */
+  missing_on_disk?: boolean;
 }
 
 interface TypeGroup {
@@ -286,7 +288,7 @@ export function SourceDatasetsPage() {
                 const isBusy = busy === key || (ensureMut.isPending && ensureMut.variables?.sub_path === f.sub_path);
                 return (
                   <div
-                    className={`folder-card${f.registered ? ' is-registered' : ''}`}
+                    className={`folder-card${f.registered ? ' is-registered' : ''}${f.missing_on_disk ? ' is-missing' : ''}`}
                     key={f.sub_path}
                     onClick={f.registered && f.source_dataset_id ? () => setSelectedId(f.source_dataset_id) : undefined}
                     style={{
@@ -305,7 +307,13 @@ export function SourceDatasetsPage() {
                       <span className="folder-name">{f.sub_path}</span>
                       {f.registered && f.status && <StatusBadge status={f.status} />}
                     </div>
-                    <div className="folder-images">{f.image_count_on_disk.toLocaleString()} images</div>
+                    {f.missing_on_disk ? (
+                      <div className="folder-sub folder-sub-warn" title={f.path}>
+                        ⚠ folder not found on disk — open it to archive
+                      </div>
+                    ) : (
+                      <div className="folder-images">{f.image_count_on_disk.toLocaleString()} images</div>
+                    )}
                     <div className="folder-meta">
                       {f.registered ? (
                         <>

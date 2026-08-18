@@ -1617,6 +1617,11 @@ tbody tr:hover {
   border-left-color: var(--border);
 }
 
+.folder-card.is-missing {
+  border-left-color: var(--yellow);
+  background: color-mix(in srgb, var(--yellow) 5%, transparent);
+}
+
 .folder-archived-head {
   margin: 1rem 0 0.5rem;
   font-size: 0.8rem;
