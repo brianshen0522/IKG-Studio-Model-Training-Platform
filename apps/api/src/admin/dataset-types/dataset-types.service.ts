@@ -405,7 +405,13 @@ export class DatasetTypesService {
     if (Object.keys(held).length > 0) return held;
 
     // Scans are pure scan history for a dataset that is already a tombstone, so they go
-    // with it; nothing else references them.
+    // with it; nothing else references them. source_datasets and source_dataset_scans
+    // reference each other, and both directions are RESTRICT, so the latest_scan_id back
+    // pointer has to be dropped before the scans it points at can go.
+    await sql`
+      UPDATE app.source_datasets SET latest_scan_id = NULL
+      WHERE dataset_type_id = ${id} AND archived_at IS NOT NULL
+    `.execute(trx);
     await sql`
       DELETE FROM app.source_dataset_scans s
       USING app.source_datasets sd
