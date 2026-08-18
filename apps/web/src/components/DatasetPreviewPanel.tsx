@@ -111,6 +111,10 @@ function SampleModal({
 }) {
   const filename = files[index];
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Class name tags obscure small or densely packed objects, so they toggle off the same
+  // way labelling tools do. Kept across navigation: it is a viewing preference, not a
+  // property of the image being looked at.
+  const [showLabels, setShowLabels] = useState(true);
   const labels = useQuery({
     queryKey: ['dataset-sample-labels', kind, filename],
     queryFn: () => apiGet<LabelsResult>(
@@ -123,11 +127,11 @@ function SampleModal({
     let cancelled = false;
     const img = new Image();
     img.onload = () => {
-      if (!cancelled && canvasRef.current) drawOverlay(canvasRef.current, img, labels.data!, classNames, true);
+      if (!cancelled && canvasRef.current) drawOverlay(canvasRef.current, img, labels.data!, classNames, showLabels);
     };
     img.src = sampleImageUrl(kind, filename);
     return () => { cancelled = true; };
-  }, [labels.data, kind, filename, classNames]);
+  }, [labels.data, kind, filename, classNames, showLabels]);
 
   const step = (dir: 1 | -1) => () => onNavigate((index + dir + files.length) % files.length);
 
@@ -137,6 +141,7 @@ function SampleModal({
       if (k === 'Escape') onClose();
       else if (k === 'ArrowLeft' || k === 'a' || k === 'A') onNavigate((index - 1 + files.length) % files.length);
       else if (k === 'ArrowRight' || k === 'd' || k === 'D') onNavigate((index + 1) % files.length);
+      else if (k === 'l' || k === 'L') setShowLabels((v) => !v);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -153,6 +158,14 @@ function SampleModal({
           <button className="btn btn-sm btn-ghost" onClick={step(-1)} title="Previous (a / ←)">← Prev</button>
           <span>{filename} ({index + 1}/{files.length})</span>
           <button className="btn btn-sm btn-ghost" onClick={step(1)} title="Next (d / →)">Next →</button>
+          <button
+            className={`btn btn-sm ${showLabels ? '' : 'btn-ghost'}`}
+            onClick={() => setShowLabels((v) => !v)}
+            title="Toggle class labels (l)"
+            aria-pressed={showLabels}
+          >
+            Labels
+          </button>
           <button className="btn btn-sm btn-ghost" onClick={onClose}>Close</button>
         </div>
         {labels.isLoading && <p className="hint">Loading…</p>}
