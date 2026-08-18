@@ -112,6 +112,54 @@ export class DatasetTypesService {
     }
   }
 
+  /**
+   * source_datasets.relative_path is an absolute snapshot taken at registration
+   * (`<effective dataset_path>/<sub_path>`) and is never rewritten, so moving the root
+   * out from under it leaves every registered row pointing at the old location — the
+   * worker then scans stale data or fails with DATASET_PATH_NOT_FOUND. Freeze the root
+   * once anything is registered; archiving is the escape hatch.
+   *
+   * Covers the inheritance chain: a descendant with no dataset_path of its own resolves
+   * to this one, so it is affected too. Descent stops at any descendant that defines its
+   * own root (it and its subtree inherit from there instead).
+   *
+   * dataset_directory_index is deliberately NOT considered — it is a pure cache with no
+   * absolute paths and no referents, and the reindex dispatched by the path change
+   * rebuilds it wholesale.
+   */
+  private async assertNoRegisteredSources(exec: Exec, id: string) {
+    const affected = await sql<{ id: string }>`
+      WITH RECURSIVE inheriting AS (
+        SELECT id FROM app.dataset_types WHERE id = ${id}
+        UNION ALL
+        SELECT c.id FROM app.dataset_types c JOIN inheriting i ON c.parent_id = i.id
+        WHERE c.dataset_path IS NULL
+      )
+      SELECT id FROM inheriting
+    `.execute(exec);
+    const ids = affected.rows.map((r) => r.id);
+
+    const rows = await exec.selectFrom('source_datasets')
+      .select(['id', 'name', 'dataset_type_id'])
+      .where('dataset_type_id', 'in', ids)
+      .where('archived_at', 'is', null)
+      .limit(5).execute();
+    if (rows.length === 0) return;
+
+    const { count } = await exec.selectFrom('source_datasets')
+      .select(sql<number>`count(*)`.as('count'))
+      .where('dataset_type_id', 'in', ids)
+      .where('archived_at', 'is', null)
+      .executeTakeFirstOrThrow();
+    throw err(
+      errorCode.DATASET_TYPE_IN_USE,
+      `dataset_path cannot be changed while ${count} source dataset(s) are registered under it. ` +
+      'Archive them first, then change the path and register again from the new root.',
+      409,
+      { source_dataset_count: Number(count), sample_source_datasets: rows },
+    );
+  }
+
   private async assertSiblingNameFree(exec: Exec, parentId: string | null, name: string, excludeId?: string) {
     let q = exec.selectFrom('dataset_types').select('id').where(sql`lower(name)`, '=', name.toLowerCase());
     q = parentId === null ? q.where('parent_id', 'is', null) : q.where('parent_id', '=', parentId);
@@ -249,6 +297,9 @@ export class DatasetTypesService {
       // must not start failing because of an overlap that predates this rule.
       if (input.model_path !== undefined && input.model_path !== row.model_path) {
         await this.assertModelRootNotNested(trx, input.model_path, id);
+      }
+      if (input.dataset_path !== undefined && input.dataset_path !== row.dataset_path) {
+        await this.assertNoRegisteredSources(trx, id);
       }
 
       const before: Record<string, unknown> = {

@@ -174,8 +174,12 @@ export class SourceDatasetsService {
         }
       }
 
+      // Archived rows must not block re-registration: archiving is the documented way to
+      // free a dataset type's dataset_path for a change (see assertNoRegisteredSources),
+      // and the whole point is to register again from the new root afterwards.
       const dup = await trx.selectFrom('source_datasets').select('id')
         .where('dataset_type_id', '=', input.dataset_type_id)
+        .where('archived_at', 'is', null)
         .where('sub_path', '=', subPath).executeTakeFirst();
       if (dup) throw err(errorCode.RESOURCE_CONFLICT, 'a source dataset already exists at this path', 409);
 
