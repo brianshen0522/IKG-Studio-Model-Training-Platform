@@ -1,347 +1,596 @@
 # IKG Studio — Model Training Platform User Manual
 
-This manual documents the web UI of **IKG Studio Model Training Platform**, a browser-based tool for managing image datasets, training/converting/benchmarking computer-vision models, and monitoring background jobs. It does **not** cover deployment or infrastructure setup.
+**Version 2.0**
 
-All screenshots below were captured against a live instance at `https://192.168.20.10` and are stored in `docs/manual-screenshots/`.
+This manual documents the web UI of **IKG Studio Model Training Platform**, a browser-based tool for registering image datasets, training / converting / benchmarking computer-vision models, and monitoring background jobs. It does **not** cover deployment or infrastructure setup.
+
+Screenshots are stored in `docs/manual-screenshots/`.
+
+> **Scope of this build.** Only **detection (`DETECT`)** and **oriented bounding box (`OBB`)** tasks are supported. `SEGMENT`, `POSE` and `CLASSIFY` appear in the data model but are reported as disabled by the platform and are rejected by the dataset scanner.
 
 ---
 
 ## Table of Contents
 
-1. [Sign In](#1-sign-in)
-2. [Roles: Admin vs. User](#2-roles-admin-vs-user)
-3. [Navigation](#3-navigation)
-4. [Home (Dashboard)](#4-home-dashboard)
-5. [Datasets](#5-datasets)
-   - [5.1 Source Datasets](#51-source-datasets)
-   - [5.2 Training Datasets](#52-training-datasets)
-6. [Models](#6-models)
-7. [Training](#7-training)
-8. [Benchmarks](#8-benchmarks)
-9. [Jobs](#9-jobs)
-10. [Notifications](#10-notifications)
-11. [Admin](#11-admin)
-    - [11.1 Users](#111-users)
-    - [11.2 Dataset Types](#112-dataset-types)
-    - [11.3 Audit](#113-audit)
-    - [11.4 System Settings](#114-system-settings)
-    - [11.5 Workers](#115-workers)
-    - [11.6 Backup](#116-backup)
-12. [Account & Security](#12-account--security)
-13. [Error & Edge Cases](#13-error--edge-cases)
+1. [Concepts & Object Model](#1-concepts--object-model)
+2. [Sign In](#2-sign-in)
+3. [Roles & Permissions](#3-roles--permissions)
+4. [Navigation](#4-navigation)
+5. [Home (Dashboard)](#5-home-dashboard)
+6. [Datasets](#6-datasets)
+   - [6.1 Source Datasets](#61-source-datasets)
+   - [6.2 Training Datasets](#62-training-datasets)
+7. [Models](#7-models)
+8. [Downloading a Trained Model](#8-downloading-a-trained-model)
+9. [Training](#9-training)
+10. [Benchmarks](#10-benchmarks)
+11. [Jobs](#11-jobs)
+12. [Notifications](#12-notifications)
+13. [Admin](#13-admin)
+    - [13.1 Users](#131-users)
+    - [13.2 Dataset Types](#132-dataset-types)
+    - [13.3 Audit](#133-audit)
+    - [13.4 System Settings](#134-system-settings)
+    - [13.5 Workers](#135-workers)
+    - [13.6 Backup](#136-backup)
+14. [Account & Security](#14-account--security)
+15. [Status Reference](#15-status-reference)
+16. [Troubleshooting & Edge Cases](#16-troubleshooting--edge-cases)
+17. [End-to-End Workflow](#17-end-to-end-workflow)
 
 ---
 
-## 1. Sign In
+## 1. Concepts & Object Model
 
-Navigate to the platform URL. You will land on the login screen with a username/password form and an optional passkey (WebAuthn) sign-in button.
+Five objects carry the whole platform. Everything else is a view over them.
+
+| Object | What it is | Created by |
+|---|---|---|
+| **Dataset Type** | A category (`cards`, `dice`, …) that scopes everything else and carries three filesystem roots. Types form a **tree**; a child inherits its parent's paths unless it sets its own. | Admin |
+| **Source Dataset** | One raw image folder discovered under a type's *dataset path*, plus the result of scanning it (image/label pairs, class list, issues). Read-only — the platform never writes into it. | Registering + scanning a folder |
+| **Training Dataset** | A curated YOLO dataset with `train` / `val` / `test` splits and a `data.yaml`. Either **BUILT** from one or more source datasets, or **REGISTERED** by pointing at a directory that is already laid out. | The New Training Dataset wizard |
+| **Model** | A `.pt` checkpoint plus its metrics, hyperparameters and lineage. Either trained on the platform or discovered by scanning a type's *model path*. | A training job, or **Scan Model Roots** |
+| **Job / Execution** | A **job** is the unit of work you asked for (train this, build that). An **execution** is one attempt at it. A job can have several executions — a retry adds an attempt, it does not create a new job. | Every long-running action |
+
+The chain is: **Dataset Type → Source Datasets → Training Dataset → Training Job → Model → Benchmark Run**.
+
+### Where your data lives
+
+| | What it holds |
+|---|---|
+| **PostgreSQL** | All state: types, datasets, scans, jobs, executions, models, benchmark runs, audit, notifications, settings |
+| **Object storage (MinIO)** | Artifacts: trained weights, training logs, charts, `results.csv`, benchmark outputs, OpenVINO `.zip` exports |
+| **Mounted filesystem** | Three roots per dataset type — **dataset path** (source image folders, read-only), **model path** (`.pt` files, the "Model Root"), **training dataset path** (built / registered YOLO directories) |
+
+A trained checkpoint therefore exists in **two** places: as a downloadable artifact in object storage, and as a file under the type's Model Root on the server. [Section 8](#8-downloading-a-trained-model) explains how to get at both.
+
+---
+
+## 2. Sign In
+
+Navigate to the platform URL. The login screen offers a username/password form and a passkey (WebAuthn) button.
 
 ![Login page](manual-screenshots/01-login.png)
 
-Enter valid credentials and click **Sign in**. On failure (wrong username/password), an inline error message is shown and the form remains editable:
+Enter credentials and click **Sign in**. On failure an inline error is shown and the form stays editable:
 
 ![Login error](manual-screenshots/02-login-error.png)
 
-> **Note:** the platform enforces account lockout after repeated failed logins (configurable — see [System Settings](#114-system-settings), `auth_failed_login_threshold` / `auth_lockout_minutes`).
+> **Account lockout.** After `auth_failed_login_threshold` failed attempts (default 5) the account is locked for `auth_lockout_minutes` (default 15). A locked account shows status `LOCKED` on the Admin → Users page and an admin can clear it early with **Unlock**. See [System Settings](#134-system-settings).
+
+Sessions expire on two independent clocks: `auth_session_idle_minutes` (default 480) and `auth_session_absolute_hours` (default 24).
 
 ---
 
-## 2. Roles: Admin vs. User
+## 3. Roles & Permissions
 
-There are two roles:
+There are two roles.
 
-| Role | Nav items visible | Admin section | Notes |
-|---|---|---|---|
-| **ADMIN** | Home, Datasets, Models, Training, Benchmarks, Jobs, Notifications, **Admin** | Full access | Can manage users, dataset types, system settings, workers, audit log, backups |
-| **USER** | Home, Datasets, Models, Training, Benchmarks, Jobs, Notifications | Not shown | Full read/write access to datasets, models, training, benchmarks — same as admin except no `Admin` tab |
+| Capability | ADMIN | USER |
+|---|---|---|
+| Source datasets — register, rescan, class override, archive | ✓ | ✓ |
+| Training datasets — create, build, register, re-validate | ✓ | ✓ |
+| **Delete a training dataset** | ✓ | ✗ |
+| Models — view, Scan Model Roots, **download artifacts** | ✓ | ✓ |
+| **Delete a model** | ✓ | ✗ |
+| **Create / delete an OpenVINO conversion** | ✓ | ✗ |
+| Training jobs — create, stop, retry | ✓ | ✓ |
+| Benchmark runs — create, stop, retry | ✓ | ✓ |
+| Jobs, Notifications, per-resource History | ✓ | ✓ |
+| Workers list | ✓ | ✓ |
+| **Admin section** (Users, Dataset Types, Audit, System Settings, Backup) | ✓ | ✗ |
+| **Browse the server filesystem** (path pickers) | ✓ | ✗ |
 
-In this build, the **USER** role could perform every dataset/model/training/benchmark action tested (register/rescan datasets, launch training, etc.) — the only observed restriction is the missing **Admin** nav entry and administrative account controls. There is no client-side route guard on top-level URLs; the app simply never renders admin-only components for non-admin sessions.
+> Earlier versions of this manual said a USER could do everything an admin could except open the Admin tab. That is **not** correct: deleting a model, deleting a training dataset, and creating or deleting an OpenVINO conversion are admin-only. The buttons are hidden for USERs and the API rejects the calls with HTTP 403.
+
+Note also that **benchmark runs cannot be deleted by anyone** — there is no delete endpoint. A run can only be stopped, cancelled or retried.
+
+The **Admin** nav entry is rendered only for `ADMIN` sessions. If a stale "admin" page survives a user switch on the same browser, the shell sends you back to Home. Browsing state is reset on every sign-in and sign-out, so nothing leaks between accounts.
 
 ![User dashboard](manual-screenshots/54-user-dashboard.png)
 ![User account page](manual-screenshots/56-user-account.png)
 
 ---
 
-## 3. Navigation
+## 4. Navigation
 
-The top app bar (visible on every page once signed in) contains:
+The top app bar contains the brand, the primary nav (**Home · Datasets · Models · Training · Benchmarks · Jobs · Notifications**, plus **Admin** for admins), your role badge, an account button and **Sign Out**.
 
-- **Logo / brand** (top-left)
-- **Primary nav**: Home, Datasets, Models, Training, Benchmarks, Jobs, Notifications, (Admin — admin only)
-- **Role badge** (`ADMIN` / `USER`)
-- **Account button** — opens [Account & Security](#12-account--security)
-- **Sign Out**
+**There is no URL router.** The page you are on is remembered in browser storage, not in the address bar. Query parameters such as `?modelId=…`, `?trainingJobId=…`, `?jobId=…` only select *which record* the currently open page shows — they cannot switch pages. A link with `?modelId=…` therefore only works if the recipient is already on the Models tab.
 
-Some pages support deep-linking via URL query parameters, e.g. `?modelId=...`, `?trainingDatasetId=...`, `?trainingJobId=...`, `?sourceDatasetId=...`, `?jobId=...`, `?benchmarkRunId=...`. When a `modelId` is present it takes priority and the Model detail page is shown regardless of the active nav tab.
+**Back remembers where you came from.** Jumping model → training job and pressing **← Back** returns to the model, not to the training list. The same applies to training dataset → source dataset, and model → training dataset.
+
+**Live updates.** The app holds a server-sent-event stream open and also polls (jobs, models and datasets every 5 s; the unread badge and dashboard every 20 s; an open log tail every 3 s). Job states, notification badges and conversion progress update on their own — you do not need to refresh.
 
 ---
 
-## 4. Home (Dashboard)
-
-The Dashboard (Home) summarizes platform state at a glance:
-
-- Counters: Source Datasets, Training Datasets, Models, Training Jobs, Benchmarks
-- **System Health**: Workers Online/Offline/Total, Active Executions, Pending Outbox, Dead-Letter Outbox
-- **Active Jobs** — currently running/queued jobs
-- **Recent Models** table
-- **Recent Benchmarks** table
-- **Recent Activity** — latest audit events
+## 5. Home (Dashboard)
 
 ![Admin dashboard](manual-screenshots/03-admin-dashboard.png)
 
+- **Counters** — Source Datasets, Training Datasets, Models, Training Jobs, Benchmarks
+- **System Health** — workers online/offline/total, active executions, pending outbox, dead-letter outbox
+- **Active Jobs** — what is running or queued right now
+- **Recent Models**, **Recent Benchmarks**, **Recent Activity** (latest audit events)
+
+Two banners can appear above any page, for every signed-in user:
+
+- **Storage Usage Warning** — MinIO usage has passed `storage_warning_threshold_percent` (default 85%).
+- **Storage Limit Exceeded** — the quota in `storage_minio_limit_bytes` is full and **uploads and executions are write-blocked**. Free space by deleting unused models, conversions or benchmark artifacts.
+
 ---
 
-## 5. Datasets
+## 6. Datasets
 
-The Datasets page has two sub-tabs: **Source** (read-only disk scanning/registration) and **Training** (curated, split datasets built from one or more sources).
+Two sub-tabs: **Source** (raw folders on disk) and **Training** (curated, split datasets).
 
-### 5.1 Source Datasets
+Both tabs group rows by dataset type in collapsible bands, remember which bands you left open, and offer **Expand all / Collapse all**.
 
-Source datasets represent raw image folders discovered on disk, grouped by **dataset type** (e.g. `cards`, `dice`, `roulette` — configured in [Admin → Dataset Types](#112-dataset-types)).
+### 6.1 Source Datasets
 
 ![Source datasets grouped list](manual-screenshots/04-datasets-source.png)
 
-Expand a dataset type group to see individual folders, each showing scan status (READY/INVALID), image/pair counts, class count, last-scan timestamp, and a per-folder **Rescan** action. Group-level actions include **Rescan type**, **Select all**, and **Scan & register all** (registers every unregistered folder and rescans already-registered ones).
+Each type band shows a stats strip (folders / registered / types / images) and, when expanded, one card per folder found under the type's dataset path.
 
 ![Expanded source dataset type with folder list](manual-screenshots/05-datasets-source-expanded.png)
 
-Click a folder to open its detail page, showing scan history/statistics:
+**Per group:** a folder name filter, a multi-select status filter with live counts (`READY (12)`, `Not registered (5)`, …), **Select all / Deselect all**, **Rescan type** (rebuilds the type's directory index), **Scan & register all** (asks for confirmation above 10 folders), and **Scan & register selected (*n*)** once you tick a subset.
+
+**Per card:** scan status, image / pair counts, class count, last-scan time, **Rescan**, and **Archive**.
+
+- A card warning **"⚠ classes.txt missing — using type fallback"** means the folder had no class list and the type's fallback was used.
+- A card reading **"⚠ folder not found on disk — open it to archive"** is a registered dataset whose folder has left the directory index (the type's path changed, or the folder moved). **Rescan** recovers it if the folder comes back; otherwise archive it.
+
+**Archiving.** Archive hides a source dataset from the grid and stops it being used for new training datasets. **Nothing on disk is touched**, and training datasets already built from it are unaffected. Archive is **one-way** — to use the folder again you must register it afresh. Tick several cards to get **Archive selected (*n*)**; the operation runs one dataset at a time so a partial failure tells you exactly which one failed. Tick **Show archived** in the page header to see a read-only band of archived datasets per type.
+
+**Detail page.** Clicking a folder opens its detail page:
 
 ![Source dataset detail](manual-screenshots/06-source-dataset-detail.png)
 
-From the detail page you can preview sample images in a modal (image + annotation overlay):
+It shows the **latest** scan (`Scan #<version>`) — not a history — with:
+
+- a statistics block: images, labels, matched pairs, missing images, missing labels, invalid labels, empty labels, warnings, errors, finished time;
+- a **Classes** table (index / name / object count) with a badge saying where the class list came from;
+- a **Scan Issues** table (severity, code, image, label, line, details);
+- for an `INVALID` dataset, a red banner grouping the errors by code with a plain-English label and an example file and line — e.g. *"Class index gap — label files reference class ids missing from the class list"*.
+
+**Class list override.** If the folder's `classes.txt` is missing or wrong, the detail page can override it: an editor whose line numbers *are* the class ids, an **Upload classes.txt** picker, and **Save & rescan**, which validates every label file against the new list first. The override is stored on the record and **never written into the source folder**; **Clear override** returns to the on-disk list.
+
+**Sample preview.** The preview panel renders thumbnails with the boxes already drawn, 24 per page. Click one for the full-size modal:
 
 ![Sample image preview modal](manual-screenshots/07-sample-modal.png)
 
-### 5.2 Training Datasets
+Modal keys: **← / A** previous, **→ / D** next (wrapping), **Esc** close, and **L** to toggle the class-name tags (there is also a **Labels** button). Both axis-aligned and oriented boxes are drawn, each class in its own colour. Training datasets get **train / val / test** tabs; source datasets are flat.
 
-Training datasets are built by combining one or more source datasets, defining classes, and splitting into train/val/test sets.
+### 6.2 Training Datasets
 
 ![Training datasets list](manual-screenshots/08-datasets-training.png)
 
-Click an entry to view its build configuration and status:
+Click an entry for its configuration, class list, split counts and lineage back to the source datasets:
 
 ![Training dataset detail](manual-screenshots/09-training-dataset-detail.png)
 
-**Build a new Training Dataset** — a 5-step wizard:
+**New Training Dataset.** The wizard's length depends on the origin you pick in step 1.
 
-1. **Origin** — choose dataset type and name the new training dataset.
-   ![Step 1: Origin](manual-screenshots/10-new-training-dataset-step1.png)
-2. **Details** — description and metadata.
+**Step 1 — Type & Origin.** Choose the dataset type, then one of:
+
+- **Build from source datasets** (`BUILT`) — merge scanned source datasets, compute a split and write `data.yaml`.
+- **Register an existing directory** (`REGISTERED`) — point at a YOLO directory that already has `data.yaml` and split folders. It is **validated, not rebuilt**.
+
+![Step 1: Type & Origin](manual-screenshots/10-new-training-dataset-step1.png)
+
+**Registering** collapses the wizard to three steps — Type & Origin → Details → **Directory** — where you pick the folder with a browser rooted at the type's training-dataset path. The final button reads **Register & Validate**.
+
+**Building** continues through five steps:
+
+2. **Details** — name and task type (`DETECT` or `OBB`). Each task shows a live count of READY source datasets of that task under the type, and is disabled when there are none.
    ![Step 2: Details](manual-screenshots/11-new-training-dataset-step2.png)
-3. **Sources** — pick which source dataset folders to include.
+3. **Sources** — pick the source datasets to merge, with a text filter and select all / none. Datasets still scanning are called out as a prerequisite.
    ![Step 3: Sources](manual-screenshots/12-new-training-dataset-step3.png)
-4. **Classes** — select/label the object classes to keep.
+4. **Classes** — a **read-only** preview of the merged class list (index / name / which sources contribute it). You cannot rename or deselect classes here. If two sources disagree about what a class index means, the conflict is shown struck-through and **blocks the wizard** — go back and deselect the conflicting source.
    ![Step 4: Classes](manual-screenshots/13-new-training-dataset-step4.png)
-5. **Split** — configure train/val/test ratios and submit.
+5. **Split** — the strategy and ratios. Two strategies exist:
+   - **Random split** — shuffle with a fixed seed. Ratio presets (80/10/10, 70/20/10, 80/20/0, 90/10/0, 1/1/1), three editable ratios that must sum to 1.00 with train > 0, a live ratio bar, and a seed field. A warning appears if the train share is very low.
+   - **Same split** — keep whatever split the sources already carry. It ignores the ratio fields entirely and must be acknowledged explicitly.
+
    ![Step 5: Split](manual-screenshots/14-new-training-dataset-step5.png)
 
-Submitting triggers a background **Dataset Build** job (see [Jobs](#9-jobs)).
+**Create & Build** queues a **Dataset Build** job; **Register & Validate** queues a **Training Dataset Scan**. Either way, watch it on the [Jobs](#11-jobs) page.
 
 ---
 
-## 6. Models
-
-Models are listed grouped by dataset type, each entry showing task (e.g. DETECT), source (TRAINING/imported), status, and creation date. A **Scan Model Roots** action re-indexes model files on disk.
+## 7. Models
 
 ![Models list](manual-screenshots/15-models-list.png)
 
-Click a model to open its detail page: training curves, metrics, and hyperparameters used.
+Models are grouped by dataset type. Columns: **Name, Architecture, Task, imgsz, Classes, Status, Size, Added**. A model trained here carries a *Trained here* pill and a `from <base weights>` sub-line.
+
+**Scan Model Roots** re-indexes each type's Model Root and reports back in plain language — *"N checkpoints found · M newly registered · K Model Root missing on disk"*. This is also the **only way to bring an outside model in through the UI**: drop the `.pt` into the type's Model Root and rescan. (The API has URL and file-upload ingest endpoints, and "Model Ingest" appears as a job type, but no screen in this build starts one.)
+
+**Model detail** shows the file name, size and checksum, training curves, validation metrics, the training job and dataset it came from, a reconstructed `yolo train …` command line (rebuilt from the stored hyperparameters, with a copy button), the artifacts table, and any OpenVINO conversions.
 
 ![Model detail page](manual-screenshots/16-model-detail.png)
 
-Click a training curve chart to enlarge it in a lightbox:
+Click any chart to enlarge it:
 
 ![Enlarged training curve chart](manual-screenshots/17-model-chart-enlarged.png)
 
-From the model detail page you can also:
-- **Convert to OpenVINO** (admin only) — opens a conversion wizard (device/precision options, then launches a Model Conversion job).
-  ![Convert to OpenVINO wizard](manual-screenshots/18-model-convert-openvino.png)
-- **Delete** the model.
+### Convert to OpenVINO — admin only
+
+Shown only while the model is `AVAILABLE`. It is a **single modal**, not a wizard:
+
+![Convert to OpenVINO](manual-screenshots/18-model-convert-openvino.png)
+
+- **Image Size** — `imgsz` (32–4096, in steps of 32), with a *Non-square imgsz* toggle that adds a width field.
+- **Export Options** — `batch`, `opset`, `max_det` (default 300), `dynamic`, `simplify` (on by default), `nms`.
+- An editable **Export CLI** box. Typing in it overrides the form; every `key=value` is validated against the pinned Ultralytics version, with per-argument errors and "did you mean" suggestions. `model` and `format=openvino` are fixed. **INT8 quantisation is not supported** — it needs a calibration dataset.
+
+There is **no device or precision choice**: the conversion runs on the worker's configured device. The output is OpenVINO IR (`.xml` + `.bin`) packed into a single `.zip` artifact in object storage. Nothing is written to the Model Root.
+
+The **OpenVINO Conversions** card below lists every conversion with **Status, Args, Created, Size, Download** and an admin-only delete. It refreshes itself every few seconds while a conversion is queued or running, shows the failure message inline in red when one fails, and clicking a row jumps to that job on the Jobs page.
+
+### Delete — admin only
+
+Offered while the model is not already `DELETED`. The confirmation first lists what will be left dangling: training jobs that used it as a base, the training job that produced it, and benchmark runs that reference it. Deletion is a **soft delete** — the record stays with status `DELETED`, the `.pt` is unlinked from the Model Root, and every OpenVINO conversion and its artifact is removed for good. The file removal is fire-and-forget and does **not** appear on the Jobs page.
 
 ---
 
-## 7. Training
+## 8. Downloading a Trained Model
 
-The Training page lists all training jobs with search and filters (status, type, model, dataset).
+> This is the question users ask most often, so it gets its own section. Short answer: **Models → open the model → scroll to the Artifacts card → click `best.pt` in the "Best Model" row.**
 
-![Training jobs list](manual-screenshots/20-training-jobs-list.png)
+### 8.1 From the model page (the normal route)
 
-Click a job to view its detail page — status, run configuration/hash, and live training curves (once running/completed):
+1. Open **Models** and click the model you want.
+2. Scroll to the bottom of the page, past the charts and the Training block, to the **Artifacts** card.
+3. Find the row whose **Type** is **Best Model**. Its **File** cell is `best.pt`.
+4. Click the file name. The browser downloads it.
+
+![The Best Model row in the Artifacts table](manual-screenshots/57-model-download-best-pt.png)
+
+> **Why it is easy to miss.** The card is called *Artifacts*, not *Download*, and there is no download button or icon — the file name itself is the link. Worse, every other row in that table (`args.yaml`, `confusion_matrix.png`, `results.csv`, `training.log`, the batch previews) is a **preview** link and is rendered in orange, while `best.pt` — the one file you actually want — is a plain link in a different colour. Look for the row labelled **Best Model**, not for a button.
+
+The **File** line at the top of the Model card also shows `best.pt (5.2 MB)`, but that is a label, not a link.
+
+Both **ADMIN** and **USER** can download artifacts. The file is streamed through the platform (it is not a direct object-storage link), so nothing extra needs to be reachable from your machine.
+
+### 8.2 From the training job
+
+The same checkpoint is attached to the training run. **Training → the job → Artifacts card → Best Model** gives you the identical file.
 
 ![Training job detail](manual-screenshots/19-training-job-detail.png)
 
-**Launch a New Training Job** — a 4-step wizard:
+The model page hides the job's copy when the model already carries its own, so you see the row once, not twice.
 
-1. **Model source** — start from an existing model (fine-tune) or a base architecture.
-   ![Step 1: Model source](manual-screenshots/21-new-training-job-step1.png)
-2. **Dataset** — pick the training dataset to train against.
-   ![Step 2: Dataset](manual-screenshots/22-new-training-job-step2.png)
-3. **Review** — confirm model + dataset selection.
-   ![Step 3: Review](manual-screenshots/23-new-training-job-step3.png)
-4. **Hyperparameters** — Basic (epochs, batch size, image size, etc.) and Advanced (optimizer, augmentation, etc.) parameter groups, plus a GPU **Device Picker**.
-   ![Step 4: Hyperparameters (Basic)](manual-screenshots/25-new-training-job-step4-basic.png)
-   ![Step 4: Hyperparameters (full)](manual-screenshots/24-new-training-job-step4.png)
+### 8.3 What else is in that table
 
-The Device Picker dropdown lists Auto-detect, CPU, and any available GPUs with live utilization/memory stats:
+| Type | File | Use |
+|---|---|---|
+| **Best Model** | `best.pt` | **The trained weights.** This is what you deploy or fine-tune from. |
+| Args YAML | `args.yaml` | Every hyperparameter the run actually used |
+| Results CSV | `results.csv` | Per-epoch metrics, for your own plots |
+| Training Log | `training.log` | Full console output |
+| Confusion Matrix / Training Output / Validation | `*.png`, `*.jpg` | Charts and sample batches — these open in a preview, they do not download |
 
-![GPU device picker dropdown](manual-screenshots/26-device-picker.png)
+Rows that are images or text open in an in-app preview when clicked. Anything else — `best.pt` included — downloads.
 
-Submitting queues a **Training** job, trackable in [Jobs](#9-jobs) and [Notifications](#10-notifications).
+### 8.4 The OpenVINO export
+
+If you need IR rather than PyTorch weights, use **Convert to OpenVINO** (admin only, [Section 7](#7-models)) and then the **Download** column of the **OpenVINO Conversions** table. That one *is* labelled "Download". You get a `.zip` containing the `.xml` and `.bin`.
+
+### 8.5 On the server
+
+Every model trained here is also written as a `.pt` under its dataset type's **Model Root** (Admin → Dataset Types → *model path*). If you have shell access to the server that is the fastest way to collect many checkpoints at once; through the browser, use the Artifacts table.
 
 ---
 
-## 8. Benchmarks
+## 9. Training
 
-Benchmarks evaluate one or more trained models against one or more training datasets, producing comparable metrics (mAP50, mAP50-95, precision, recall, F1).
+![Training jobs list](manual-screenshots/20-training-jobs-list.png)
+
+The Training page lists every training job. Filters for status, type, model and dataset **cascade** — choosing a model narrows the dataset list and vice versa — plus a sort control (newest / oldest / name) and **Reset filters**. Each row has **Stop** and **Retry** where the status allows it.
+
+![Training job detail](manual-screenshots/19-training-job-detail.png)
+
+The detail page adds:
+
+- **Executions** — one row per attempt (Attempt, Status, Progress, Started, Finished, Error), headed "*N* attempts". This is where automatic retries become visible; see [Section 16](#16-troubleshooting--edge-cases).
+- **History** — the audit trail for this job, available to USERs as well as admins.
+- Live training curves and a live log tail once the run starts.
+
+### New Training Job — five steps
+
+1. **Dataset Type** — everything downstream is scoped to it.
+   ![Step 1: Dataset Type](manual-screenshots/21-new-training-job-step1.png)
+2. **Model** — either **Official YOLO model** (Ultralytics pretrained, fetched by the worker on first use; you choose version and size and the resolved weights file name is previewed) or **Model registered here** (any `AVAILABLE` model of this type, i.e. fine-tuning).
+   ![Step 2: Model](manual-screenshots/22-new-training-job-step2.png)
+3. **Training Dataset** — a searchable list of `READY` datasets with an image and class summary, plus a **job name** (leave blank to auto-name from the type and today's date). Two things block this step: a task-type mismatch between model and dataset, and asking for official OBB weights where that YOLO version has none.
+   ![Step 3: Training Dataset](manual-screenshots/23-new-training-job-step3.png)
+4. **Hyperparameters** — the device picker plus five collapsible groups: **Basic** (epochs, imgsz, batch, cache, val), **Optimizer** (optimizer, lr0, lrf, momentum, weight_decay, warmup_epochs, cos_lr), **Augmentation** (hsv_h/s/v, degrees, translate, scale, shear, flipud, fliplr, mosaic, mixup, copy_paste), **Regularization** (dropout, patience, single_cls) and **Advanced** (workers, seed, save_period, deterministic, multi_scale, rect).
+   ![Step 4: Hyperparameters (Basic)](manual-screenshots/25-new-training-job-step4-basic.png)
+   ![Step 4: Hyperparameters (all groups)](manual-screenshots/24-new-training-job-step4.png)
+5. **Review & CLI** — the generated `yolo train …` command, editable. Editing the form regenerates the line; editing the line overrides the form (marked *edited*, with a **Reset**). Arguments are validated against the pinned Ultralytics version.
+
+**Device picker.** Auto-detect, CPU, or one *or several* GPUs — GPU entries are toggles that accumulate into `device=0,1`, and the summary reads "2 GPUs (device=0,1)". Only GPUs reported by **online training workers** are listed, with their live memory and utilisation.
+
+![GPU device picker](manual-screenshots/26-device-picker.png)
+
+Submitting queues a **Training** job, trackable from [Jobs](#11-jobs) and [Notifications](#12-notifications).
+
+---
+
+## 10. Benchmarks
+
+A benchmark run evaluates a model against a training dataset's splits and produces comparable metrics (mAP50, mAP50-95, precision, recall, F1). The underlying schema supports a model × dataset matrix, but the **New Benchmark Run** wizard creates **one model against one dataset** — use **Compare Models** to put several models side by side afterwards.
 
 ![Benchmarks list](manual-screenshots/27-benchmarks-list.png)
 
-### Benchmark Run Detail
+### Run detail
 
-Clicking a run opens its detail page with three view modes:
+Three view modes:
 
-- **Matrix Table** — model × dataset grid of scores.
-  ![Matrix table view](manual-screenshots/28-benchmark-detail-matrix.png)
-- **Visual Result Chart** — bar chart comparing metrics (mAP50, F1, Precision, Recall) across model/dataset pairs.
-  ![Visual chart view](manual-screenshots/29-benchmark-detail-chart.png)
-- **Detailed List** — a filterable/sortable table of individual evaluations, each with a **View Charts** action opening evaluation artifacts (confusion matrix, PR curves, per-class charts, log files):
-  ![Detailed list view](manual-screenshots/30-benchmark-detail-list.png)
-  ![Evaluation artifact charts modal](manual-screenshots/31-benchmark-eval-charts-modal.png)
+- **Matrix Table** — the model × dataset grid.
+  ![Matrix table](manual-screenshots/28-benchmark-detail-matrix.png)
+- **Visual Result Chart** — bars comparing mAP50, F1, precision and recall.
+  ![Visual chart](manual-screenshots/29-benchmark-detail-chart.png)
+- **Detailed List** — one row per evaluation, each with **View Charts** for its confusion matrix, PR curves, per-class charts and logs.
+  ![Detailed list](manual-screenshots/30-benchmark-detail-list.png)
+  ![Evaluation charts](manual-screenshots/31-benchmark-eval-charts-modal.png)
+
+**Stop** moves a running run to `STOPPING` (queued evaluations are cancelled outright); anything not running or queued refuses.
+
+> **Retry replaces the whole run.** Retry is only offered once a run has finished, and it re-queues **every** evaluation in that run — not just the failed ones — in place, on the same run record. Doing so **clears the existing metrics first**, so retrying a `PARTIALLY_FAILED` run discards the results of the cells that had succeeded and computes them again. There is no per-cell retry. Retry is refused if any model in the run is no longer `AVAILABLE` or any dataset no longer `READY`.
 
 ### Compare Models
 
-**Compare Models** opens a 3-step wizard (Dataset Type → Select Models → Compare) to side-by-side compare multiple models sharing a dataset type. Dataset types with fewer than 2 available models are disabled.
+A three-step wizard: **Dataset Type → Select Models → Compare**. Types with fewer than two models are disabled, and within a type only models that already have a completed evaluation are selectable — the rest are greyed with *"no completed evaluation for this dataset type"*.
 
 ![Compare Models wizard](manual-screenshots/32-compare-models-wizard.png)
 
-### New Benchmark Run
+The result view has a **Radar / Bars** toggle, an overlay of the models' training curves, a **⬇ CSV** export (overall metrics plus one column per class) and a **⬇ PNG** export that works in Radar mode only.
 
-**+ New Benchmark Run** opens a 5-step wizard:
+### New Benchmark Run — five steps
 
-1. **Dataset Type & Name** — pick dataset type, name and describe the run.
+1. **Dataset Type & Name**
    ![Step 1](manual-screenshots/33-new-benchmark-step1.png)
-2. **Select Model** — choose the model to evaluate.
+2. **Select Model** — one model.
    ![Step 2](manual-screenshots/34-new-benchmark-step2-model.png)
-3. **Select Dataset** — choose the training dataset (its test/val split) to evaluate against.
+3. **Select Dataset** — one training dataset.
    ![Step 3](manual-screenshots/35-new-benchmark-step3-dataset.png)
-4. **Device** — Auto-detect, CPU, or a specific GPU (with live worker stats).
+4. **Device** — auto, CPU or a specific GPU, with live worker stats.
    ![Step 4](manual-screenshots/36-new-benchmark-step4-device.png)
    ![Device dropdown](manual-screenshots/37-new-benchmark-device-dropdown.png)
-5. **Review** — final summary plus an **Workers online** table showing which workers are available to run the evaluation, then **Create & Launch Benchmark**.
-   ![Step 5: Review](manual-screenshots/38-new-benchmark-step5-review.png)
+5. **Review** — the summary plus a **Workers online** table, then **Create & Launch Benchmark**.
+   ![Step 5](manual-screenshots/38-new-benchmark-step5-review.png)
+
+Steps are strictly sequential — you cannot skip ahead.
 
 ---
 
-## 9. Jobs
+## 11. Jobs
 
-The Jobs page is a system-wide view of every background job across all subsystems (Training, Dataset Build, Dataset Validate, Dataset Scan, Benchmark Eval, Model Ingest, Model Conversion), independent of which page originally launched them.
+Every background job across every subsystem, whichever page launched it.
 
 ![Jobs list](manual-screenshots/39-jobs-list.png)
 
-Use the **type filter** to narrow by job kind, and the All/Active/Completed/Failed quick filters.
+Job types: **Training, Dataset Build, Dataset Validate, Dataset Scan, Benchmark Eval, Model Ingest, Model Conversion**. Quick filters **All / Active / Completed / Failed** sit alongside a type filter; both are remembered across reloads. The list refreshes every few seconds and loads more as you scroll.
 
-![Job type filter dropdown](manual-screenshots/40-jobs-type-filter.png)
+![Job type filter](manual-screenshots/40-jobs-type-filter.png)
 
-Each row shows job kind, name, technical status (e.g. `SUCCEEDED`) with the resulting business status in parentheses (e.g. `(COMPLETED)`), progress %, duration, and timestamp. Clicking a row opens an inline detail panel with a log/error excerpt. Example — a job whose worker execution was lost mid-run:
+Each row shows the job kind, name, **technical status** (the execution's own state) with the **business status** in parentheses (the state of the thing it was working on), progress, duration and timestamp. See [Status Reference](#15-status-reference).
 
-![Job detail: LOST status with error log](manual-screenshots/41-job-detail-lost-error.png)
+Clicking a row opens a **modal** with the run's log. While the execution is active the log re-polls every few seconds and follows the tail; scroll up and it pauses following until you scroll back down.
+
+![Job detail with error log](manual-screenshots/41-job-detail-lost-error.png)
+
+> Model deletion and Model Root scans are fire-and-forget and never appear here.
 
 ---
 
-## 10. Notifications
+## 12. Notifications
 
-Notifications are system-generated events (job completions, failures, scan problems, etc.) surfaced per-user. The nav badge shows the unread count.
+System events raised per user — job completions, failures, scan problems. The nav badge shows the unread count and updates without a refresh.
 
 ![Notifications list](manual-screenshots/42-notifications-list.png)
 
-Controls: **Mark all read**, per-item **Mark read**, an **Unread only** checkbox, and a severity filter. A ✓ icon marks success events (e.g. "Dataset Scan Completed"); a ✕ icon marks problem events (e.g. "Dataset Scan Found Problems" for an INVALID scan result).
+Controls: **Mark all read**, per-item **Mark read**, an **Unread only** checkbox, a severity filter and **Reset filters**. The list loads more as you scroll and shows a total in the header.
 
-![Unread-only filter applied](manual-screenshots/43-notifications-unread-filter.png)
+Three severities: **✓ SUCCESS** (green), **! WARNING** (yellow) and **✕ ERROR** (red). For example, a scan that finishes cleanly raises a ✓ *Dataset Scan Completed*; one that finishes `INVALID` raises *Dataset Scan Found Problems*.
+
+![Unread-only filter](manual-screenshots/43-notifications-unread-filter.png)
 
 ---
 
-## 11. Admin
+## 13. Admin
 
-Visible only to users with the **ADMIN** role. Contains six sub-tabs: Users, Dataset Types, Audit, System Settings, Workers, Backup.
+Admins only. Six sub-tabs.
 
-### 11.1 Users
+### 13.1 Users
 
-Manage platform accounts: role (USER/ADMIN), active/disabled state, and password resets.
+![Admin Users](manual-screenshots/44-admin-users.png)
 
-![Admin Users tab](manual-screenshots/44-admin-users.png)
-
-**+ New User** opens a form for username, display name, email (optional), role, and password mode (Manual or Generated):
+Accounts have status `ACTIVE`, `DISABLED` or `LOCKED`, and the available actions depend on it: **Disable / Enable**, **Make Admin / Make User** (never on your own account), **Reset Password**, and **Unlock** for a locked account.
 
 ![New User modal](manual-screenshots/45-admin-new-user-modal.png)
 
-Per-user row actions: **Disable/Enable**, **Make Admin/Make User** (disabled for your own account — you cannot demote yourself), **Reset Password**.
+**+ New User** takes a username, display name, optional email, role, and a password mode.
 
-### 11.2 Dataset Types
+> **Use "Manual" password mode.** In this build the *Generated* mode creates the account but never shows you the generated password, leaving the user unable to sign in. Set a password yourself and hand it over.
 
-Dataset types are the top-level categories (e.g. `cards`, `dice`, `roulette`) that scope Source Datasets, Training Datasets, and Models. Each has a dataset root path, model root path, and enabled state, plus usage counts.
+The platform refuses to demote or disable the **last active admin**.
 
-![Admin Dataset Types tab](manual-screenshots/46-admin-dataset-types.png)
+### 13.2 Dataset Types
 
-**Edit** opens a form to change the name, description, and the three filesystem paths (dataset path, model path, training dataset path), each validated live for existence:
+![Admin Dataset Types](manual-screenshots/46-admin-dataset-types.png)
 
-![Edit Dataset Type modal](manual-screenshots/47-admin-edit-dataset-type.png)
+Dataset types form a **tree**, not a flat list — rows expand, children are indented, and depth is capped by `dataset_type_max_depth` (default 8).
 
-**New Root Type** creates a new dataset type; **Disable** deactivates one without deleting its data.
+Each node carries three absolute filesystem roots — **dataset path** (source folders), **model path** (`.pt` files) and **training dataset path** (built or registered YOLO directories) — plus an enabled flag and usage counts. A node without its own path **inherits** the nearest ancestor's, displayed as *"(inherited)"*.
 
-### 11.3 Audit
+![Edit Dataset Type](manual-screenshots/47-admin-edit-dataset-type.png)
 
-A searchable, filterable, paginated log of every auditable platform action (logins, resource creation, job lifecycle events, etc.), each entry showing actor, action code, resource type/id, result (SUCCESS/FAILURE), and a correlation id linking related events. Supports filtering by action, resource type, result, actor type, and date range, plus **Export CSV**.
+**Edit** changes the name, description and the three paths. Each path is checked for existence as you type, has a **Browse…** picker, and must differ from the other two. Concurrent edits are rejected rather than silently overwritten.
 
-![Admin Audit Log tab](manual-screenshots/48-admin-audit-log.png)
+Other actions: **Disable / Enable**, and **Delete** — refused while any child type, source dataset, training dataset or model still references the type, and it names the blockers. Deleting removes only the type and its cached folder index; nothing on disk is touched. Types marked **system** are read-only.
 
-### 11.4 System Settings
+**New Root Type** creates a top-level type. In this build child types can only be created through the API.
 
-Platform-wide configuration grouped by category:
+### 13.3 Audit
 
-- **Authentication** — failed-login threshold, lockout duration, session absolute/idle timeouts.
-- **Models** — allow non-TLS/private download URLs (SSRF-risk toggles), minimum accepted file size, global model root path, max browser-upload size.
-- **Datasets** — max dataset type tree depth, global managed-dataset root path.
-- **Workers & Queue** — queue wait warning threshold, worker offline timeout.
-- **Storage** — MinIO storage limit, usage warning threshold, workspace file retention hours, workspace root path.
+![Admin Audit Log](manual-screenshots/48-admin-audit-log.png)
 
-Changes are applied platform-wide and take effect on the next operation that reads the setting.
+Every auditable action — logins, resource creation, job lifecycle — with actor, action, resource type and id, result, and a correlation id. Filter by action, resource type, result, actor type and date range, and **Export CSV**. Clicking a **correlation id** opens every event from the same operation across subsystems.
 
-![Admin System Settings tab](manual-screenshots/50-admin-system-settings.png)
+Per-resource **History** cards on models, training jobs and dataset types show the same data scoped to one record, and are visible to USERs too.
 
-### 11.5 Workers
+### 13.4 System Settings
 
-Lists registered background workers (dataset-worker, training-worker, …) with online/offline status, hostname/container id, active job count, runtime versions (Python/torch/ultralytics/CUDA), and heartbeat/registration timestamps.
+![Admin System Settings](manual-screenshots/50-admin-system-settings.png)
 
-![Admin Workers tab](manual-screenshots/49-admin-workers.png)
+Grouped by category:
 
-### 11.6 Backup
+- **Authentication** — `auth_failed_login_threshold` (5), `auth_lockout_minutes` (15), `auth_session_idle_minutes` (480), `auth_session_absolute_hours` (24)
+- **Models** — `model_download_allow_http`, `model_download_allow_private` (both SSRF-risk toggles), `model_min_size_bytes`, `model_root`, `model_upload_max_size_bytes` (2 GiB)
+- **Datasets** — `dataset_type_max_depth` (8), `managed_dataset_root`
+- **Workers & queue** — `worker_offline_timeout_seconds` (90), `queue_wait_warning_minutes` (30)
+- **Storage** — `storage_minio_limit_bytes` (100 GiB), `storage_warning_threshold_percent` (85), `workspace_retention_hours` (24), `workspace_root`
 
-Export/import the full platform state (users incl. password hashes & passkeys, dataset types, system settings incl. secrets) as a JSON file. **Import** only works on a fresh/empty system since it overwrites these tables.
+Settings are saved **one row at a time**: edit a field and that row grows **Revert** and **Save** buttons, with an "*N* unsaved" badge in the header. Byte values get an MB/GB/TB unit selector. Secret values show as *hidden* and cannot be edited here. Changes take effect on the next operation that reads the setting.
 
-![Admin Backup tab](manual-screenshots/51-admin-backup.png)
+### 13.5 Workers
+
+![Admin Workers](manual-screenshots/49-admin-workers.png)
+
+A read-only list of registered workers: type, online/offline, hostname, active job count, runtime versions (Python, torch, ultralytics, CUDA), and heartbeat and registration times. **There is no enable / disable / drain action** — a worker goes offline by stopping, or by missing heartbeats for `worker_offline_timeout_seconds`.
+
+GPU inventory is not shown here; it appears in the device picker when you launch a training job or benchmark.
+
+### 13.6 Backup
+
+![Admin Backup](manual-screenshots/51-admin-backup.png)
+
+**Export** downloads `ikg-backup-<timestamp>.json` containing all users (including password hashes), dataset types, system settings (including secret values) and registered passkeys. Treat the file as a credential.
+
+**Import** replaces those four tables in a single transaction. Your own account survives — it is re-pointed at the matching admin in the file, so your session stays valid — but **every other user is signed out**. The import rolls back if any dataset type is still referenced by a source dataset, training dataset or model, which in practice means it is only usable on a system that has no dataset or model data yet. Datasets, models, jobs, benchmarks, artifacts and audit logs are never touched.
 
 ---
 
-## 12. Account & Security
+## 14. Account & Security
 
-Reached via the account button in the top-right (shows your username). Displays username, display name, and role (read-only), plus:
+![Account & Security](manual-screenshots/52-account-security.png)
 
-- **Change password** — current password + new password + confirmation form.
-- **Passkeys** — register WebAuthn passkeys for passwordless sign-in.
+Shows your username, display name and role (read-only), plus:
 
-![Account & Security page](manual-screenshots/52-account-security.png)
-
-Change-password form expanded:
-
-![Change password form](manual-screenshots/53-account-change-password.png)
+- **Change password** — current password, new password, confirmation.
+  ![Change password](manual-screenshots/53-account-change-password.png)
+- **Passkeys** — register WebAuthn credentials for passwordless sign-in, and remove ones you no longer use. A registered passkey is what makes the passkey button on the login page work.
 
 ---
 
-## 13. Error & Edge Cases
+## 15. Status Reference
 
-- **Invalid login** — shows an inline "Invalid credentials" message on the login form (see [§1](#1-sign-in), screenshot 02). Repeated failures trigger account lockout per `auth_failed_login_threshold` / `auth_lockout_minutes` in [System Settings](#114-system-settings).
-- **Unknown/non-existent resource id in URL** (e.g. `?modelId=<random-uuid>`) — the app does not show a dedicated 404 page; it silently falls back to the default page for the active nav tab (Datasets → Source, in this build).
-- **Non-admin navigating to admin-only state** — there is no client-side route guard; the Admin nav item and its sub-pages are simply never rendered for a USER-role session (see [§2](#2-roles-admin-vs-user)).
-- **Lost job execution** — if a worker stops sending heartbeats mid-job, the job is marked `LOST` (technical status) while its business status remains at its last known value (e.g. `READY`); the job detail log shows the last processed item and an `Execution lost: no heartbeat within timeout` error (see [§9](#9-jobs), screenshot 41).
-- **Dataset scan problems** — a source folder scan can complete with status `INVALID` (e.g. malformed annotations), which is reported via a ✕ "Dataset Scan Found Problems" notification instead of a ✓ success notification (see [§10](#10-notifications)).
+### Execution status — the technical state of one attempt
+
+`ASSIGNED` → `CLAIMED` → `PREPARING` → `RUNNING` → `SUCCEEDED` / `FAILED` / `CANCELLED` / `STOPPED` / `LOST`
+
+The Jobs page quick filters map onto these: **Active** = assigned, claimed, preparing, running · **Completed** = succeeded · **Failed** = failed, cancelled, stopped, lost.
+
+### Business status — the state of the thing being worked on
+
+| Job type | Business status comes from |
+|---|---|
+| Training | the training job |
+| Dataset Build / Training Dataset Scan | the training dataset |
+| Dataset Scan | the **scan**, not the source dataset |
+| Benchmark Eval | the evaluation |
+| Model Ingest | the ingest task |
+| Model Conversion | the conversion |
+
+### Training job
+
+`SCHEDULED · QUEUED · PREPARING · RUNNING · STOPPING · COMPLETED · FAILED · CANCELLED · STOPPED · BLOCKED`
+
+**`BLOCKED`** means the job is waiting for another job to finish. The scheduler promotes it once its dependencies complete, and fails it if one of them fails. Dependencies can only be set through the API in this build, so `BLOCKED` will not appear for jobs created in the UI.
+
+### Benchmark run
+
+`QUEUED · RUNNING · COMPLETED · PARTIALLY_FAILED · FAILED · CANCELLED · STOPPING · STOPPED`
+
+`PARTIALLY_FAILED` means some evaluations succeeded and some did not; the successful metrics are kept. Note that the list page's status filter does not offer `STOPPING` or `STOPPED`, so a stopped run cannot be filtered for.
+
+### Benchmark evaluation
+
+`PENDING · QUEUED · RUNNING · COMPLETED · FAILED · CANCELLED · STOPPING · STOPPED`
+
+### Model
+
+`AVAILABLE` · `DELETED` (soft delete — the record stays, the file is unlinked)
+
+### User
+
+`ACTIVE · DISABLED · LOCKED`
+
+---
+
+## 16. Troubleshooting & Edge Cases
+
+**A job says `LOST`.** The worker stopped sending heartbeats. The scheduler marks the execution `LOST` and then carries the failure into the object being worked on — it does not leave it hanging:
+
+| Job type | What happens next |
+|---|---|
+| Training | retried automatically with a new attempt, up to a configured limit, then `FAILED`. If it was already stopping, it becomes `STOPPED`. |
+| Dataset Scan | the scan fails and the source dataset goes back to `REGISTERED` — not `INVALID`, since the scan never actually ran |
+| Dataset Build / Training Dataset Scan | the training dataset becomes `INVALID` |
+| Benchmark Eval | the evaluation fails and the parent run is finalised so it cannot hang in `RUNNING` |
+| Model Conversion | the conversion becomes `FAILED` |
+
+The log will show `Execution lost: no heartbeat within timeout`.
+
+**A training job shows "attempt 3".** Some failures are retried automatically with a growing delay — temporary storage failures, database connection failures, network and Redis timeouts. Everything else (a bad dataset, missing labels, an unreadable model, a checksum mismatch, invalid configuration) is treated as permanent and fails on the first attempt. The **Executions** table on the job detail page shows each attempt and its error.
+
+**A detail page says the record no longer exists.** Opening a URL with an id that has been deleted — or that you cannot see — shows an explicit error panel with a **← Back** button. There is no 404 page because there are no page URLs; a `?modelId=…` parameter only takes effect if the Models tab is already open.
+
+**A source dataset scan finished `INVALID`.** Open the dataset's detail page: the red banner groups the errors by code with an example file and line. Common causes are class indices in the labels that are missing from the class list, and label files with no matching image. Fix the folder, or set a class list override, then **Rescan**.
+
+**A source dataset card says the folder is not on disk.** Its folder left the directory index. **Rescan** recovers it if the folder is back; otherwise **Archive** it.
+
+**"Storage Limit Exceeded" is showing.** MinIO is at its quota and new uploads and executions are blocked. Delete unused OpenVINO conversions, models or benchmark artifacts, or raise `storage_minio_limit_bytes`.
+
+**A benchmark run finished `PARTIALLY_FAILED` and I want the failed cells re-run.** There is no way to re-run a single cell. Retry re-runs the whole run and clears the metrics of the cells that succeeded before recomputing them — so either accept that, or create a new run for the failing pair.
+
+**A new user cannot sign in.** If the account was created with the *Generated* password mode, no one ever saw the password. Reset it from Admin → Users with a password you choose.
+
+**Repeated failed sign-ins lock the account.** Status becomes `LOCKED`; wait `auth_lockout_minutes` or ask an admin to **Unlock**.
+
+---
+
+## 17. End-to-End Workflow
+
+1. **Admin** creates a **dataset type** with its three filesystem roots (Admin → Dataset Types).
+2. Someone drops raw image folders under the type's **dataset path**.
+3. On **Datasets → Source**, expand the type and **Scan & register** the folders. Fix anything that comes back `INVALID`, using a class list override where the folder's `classes.txt` is wrong.
+4. On **Datasets → Training**, build a **training dataset** from the source datasets (or register a directory that is already split).
+5. On **Training**, launch a **training job**: pick the type, an official or registered model, the dataset, the hyperparameters and the device.
+6. Watch it on **Jobs**; the result appears under **Models**.
+7. **Download the weights** from the model's Artifacts card — see [Section 8](#8-downloading-a-trained-model) — or convert to OpenVINO if you need IR.
+8. On **Benchmarks**, evaluate the model against a dataset, then use **Compare Models** to put candidates side by side and export the comparison.

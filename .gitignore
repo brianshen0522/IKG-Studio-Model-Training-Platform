@@ -34,3 +34,4 @@ data/
 # Misc
 *.log
 npm-debug.log*
+docs/*.docx
