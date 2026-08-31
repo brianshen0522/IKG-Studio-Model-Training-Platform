@@ -3949,18 +3949,21 @@ td.nums {
   word-break: break-word;
 }
 
-/* Download links inside data tables. Left unstyled these render as the browser default
-   #0000EE on a dark surface — effectively unreadable. */
-.table-wrap a {
-  color: var(--blue);
+/* Download links inside data tables and the job modal. Left unstyled these render as
+   the browser default #0000EE on a dark surface — effectively unreadable. Brand
+   primary so they read as part of the chrome, not a foreign hyperlink. */
+.table-wrap a,
+.job-timing a {
+  color: var(--primary);
   text-decoration: none;
   border-bottom: 1px solid transparent;
   transition: color var(--transition), border-color var(--transition);
 }
 
-.table-wrap a:hover {
+.table-wrap a:hover,
+.job-timing a:hover {
   color: var(--text);
-  border-bottom-color: var(--blue);
+  border-bottom-color: var(--primary);
 }
 
 /* Compare Models wizard — per-metric horizontal bars, one row per model. Track is

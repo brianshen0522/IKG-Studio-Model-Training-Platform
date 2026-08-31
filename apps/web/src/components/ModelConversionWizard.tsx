@@ -12,25 +12,15 @@ interface Props {
 }
 
 interface FormState {
-  imgsz: number;
-  imgszW: number | null;
+  /** Empty = omit from the CLI; the API then applies the trained imgsz. */
+  imgsz: string;
+  imgszW: string | null;
   dynamic: boolean;
   nms: boolean;
-  max_det: number;
+  /** Empty = omit from the CLI; Ultralytics defaults to 300. */
+  max_det: string;
   batch: string;
   cliOverride: string | null;
-}
-
-function IntField({ label, value, onChange, min, max, step }: {
-  label: string; value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number;
-}) {
-  return (
-    <label className="field hp-field">
-      <span>{label}</span>
-      <input type="number" value={value} min={min} max={max} step={step}
-        onChange={(e) => onChange(Number(e.target.value))} />
-    </label>
-  );
 }
 
 function TextField({ label, value, onChange, placeholder, hint }: {
@@ -74,10 +64,10 @@ function ExportSection({ title, children, defaultOpen = false }: {
 
 function buildExportCli(state: FormState, modelFile: string): string {
   const parts: string[] = ['yolo', 'export', `model=${modelFile}`, 'format=openvino'];
-  parts.push(`imgsz=${state.imgszW != null ? `${state.imgsz},${state.imgszW}` : state.imgsz}`);
+  if (state.imgsz) parts.push(`imgsz=${state.imgszW != null ? `${state.imgsz},${state.imgszW}` : state.imgsz}`);
   if (state.dynamic) parts.push('dynamic=True');
   if (state.nms) parts.push('nms=True');
-  parts.push(`max_det=${state.max_det}`);
+  if (state.max_det) parts.push(`max_det=${state.max_det}`);
   if (state.batch) parts.push(`batch=${state.batch}`);
   return parts.join(' ');
 }
@@ -90,11 +80,11 @@ export function ModelConversionWizard({ model, onClose, onCreated }: Props) {
   const defaultImgszW = Number.isFinite(Number(defaultW)) && Number(defaultW) > 0 ? Number(defaultW) : null;
 
   const [s, setS] = useState<FormState>({
-    imgsz: defaultImgszH,
-    imgszW: defaultImgszW,
+    imgsz: '',
+    imgszW: null,
     dynamic: true,
     nms: false,
-    max_det: 300,
+    max_det: '',
     batch: '',
     cliOverride: null,
   });
@@ -128,11 +118,9 @@ export function ModelConversionWizard({ model, onClose, onCreated }: Props) {
         delete parsed.format;
         args = parsed;
       } else {
-        args = {
-          imgsz: s.imgszW != null ? [s.imgsz, s.imgszW] : s.imgsz,
-          dynamic: s.dynamic,
-          nms: s.nms, max_det: s.max_det,
-        };
+        args = { dynamic: s.dynamic, nms: s.nms };
+        if (s.imgsz) args.imgsz = s.imgszW != null ? [Number(s.imgsz), Number(s.imgszW)] : Number(s.imgsz);
+        if (s.max_det) args.max_det = Number(s.max_det);
         if (s.batch) args.batch = Number(s.batch);
       }
       return apiSend<{ id: string }>('POST', `/models/${model.id}/conversions`, { args }, csrfToken);
@@ -161,22 +149,32 @@ export function ModelConversionWizard({ model, onClose, onCreated }: Props) {
 
         <div className="hp-container">
           <ExportSection title="Image Size" defaultOpen>
-            <IntField label={s.imgszW != null ? 'Image size (height)' : 'Image size (imgsz)'} value={s.imgsz}
-              onChange={(v) => setS((p) => ({ ...p, imgsz: v, cliOverride: null }))} min={32} max={4096} step={32} />
+            <TextField label={s.imgszW != null ? 'Image size (height)' : 'Image size (imgsz)'} value={s.imgsz}
+              onChange={(v) => setS((p) => ({ ...p, imgsz: v, cliOverride: null }))}
+              placeholder={`${defaultImgszH} (trained default)`} />
             {s.imgszW != null && (
-              <IntField label="Image size (width)" value={s.imgszW}
-                onChange={(v) => setS((p) => ({ ...p, imgszW: v, cliOverride: null }))} min={32} max={4096} step={32} />
+              <TextField label="Image size (width)" value={s.imgszW}
+                onChange={(v) => setS((p) => ({ ...p, imgszW: v, cliOverride: null }))}
+                placeholder={`${defaultImgszW ?? defaultImgszH} (trained default)`} />
             )}
             <BoolField label="Non-square imgsz" value={s.imgszW != null}
-              onChange={(v) => setS((p) => ({ ...p, imgszW: v ? p.imgsz : null, cliOverride: null }))} />
+              onChange={(v) => setS((p) => (v
+                ? {
+                    ...p,
+                    imgsz: p.imgsz || String(defaultImgszH),
+                    imgszW: p.imgsz || String(defaultImgszW ?? defaultImgszH),
+                    cliOverride: null,
+                  }
+                : { ...p, imgszW: null, cliOverride: null }))} />
           </ExportSection>
 
           <ExportSection title="Export Options" defaultOpen>
             <TextField label="Batch" value={s.batch}
               onChange={(v) => setS((p) => ({ ...p, batch: v, cliOverride: null }))}
               placeholder="16 (optional)" />
-            <IntField label="Max detections" value={s.max_det}
-              onChange={(v) => setS((p) => ({ ...p, max_det: v, cliOverride: null }))} min={1} max={10000} />
+            <TextField label="Max detections" value={s.max_det}
+              onChange={(v) => setS((p) => ({ ...p, max_det: v, cliOverride: null }))}
+              placeholder="300 (default)" />
             <BoolField label="Dynamic shape" value={s.dynamic} onChange={(v) => setS((p) => ({ ...p, dynamic: v, cliOverride: null }))} />
             <BoolField label="Include NMS" value={s.nms} onChange={(v) => setS((p) => ({ ...p, nms: v, cliOverride: null }))} />
           </ExportSection>
