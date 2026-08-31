@@ -19,6 +19,7 @@ import zipfile
 
 from . import log
 from .heartbeat import Heartbeat
+from .model_cache import fetch_model_file
 
 
 class ConversionError(Exception):
@@ -103,21 +104,31 @@ class Converter:
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
 
-    def _load_model(self, model_id: str) -> dict:
+    def _load_model(self, model_id: str, scratch: str) -> dict:
         with self.conn.cursor() as cur:
             cur.execute(
                 "SELECT m.name, m.task_type, m.model_path, m.relative_path, m.architecture_metadata, "
-                "dt.model_path "
-                "FROM models m LEFT JOIN dataset_types dt ON dt.id = m.dataset_type_id WHERE m.id=%s",
+                "dt.model_path, a.bucket_name, a.object_key, a.checksum "
+                "FROM models m "
+                "LEFT JOIN dataset_types dt ON dt.id = m.dataset_type_id "
+                "LEFT JOIN artifacts a ON a.id = m.source_artifact_id AND a.artifact_type_code='BEST_MODEL' "
+                "WHERE m.id=%s",
                 (model_id,),
             )
             row = cur.fetchone()
         if row is None:
             raise ConversionError("VALIDATION", "MODEL_NOT_FOUND", "model not found")
-        (name, task_type, model_path, relative_path, arch_meta, dt_model_path) = row
+        (name, task_type, model_path, relative_path, arch_meta, dt_model_path,
+         bucket, object_key, checksum) = row
+        # Trained models keep their weights only in MinIO (the Model Root copy is
+        # dropped when the training job finishes), so the on-disk path is a fast path,
+        # not a requirement: fall back to the BEST_MODEL artifact, downloaded into the
+        # conversion scratch dir and deleted with it.
         pt_path = model_path or (os.path.join(dt_model_path, relative_path) if dt_model_path else None)
-        if not pt_path or not os.path.isfile(pt_path):
-            raise ConversionError("VALIDATION", "MODEL_FILE_MISSING", f"model file not found: {pt_path}")
+        try:
+            pt_path = fetch_model_file(self.storage, scratch, model_id, pt_path, bucket, object_key, checksum)
+        except (FileNotFoundError, RuntimeError) as e:
+            raise ConversionError("VALIDATION", "MODEL_FILE_MISSING", str(e)[:500]) from e
         return {"name": name, "task_type": task_type, "pt_path": pt_path, "arch": arch_meta}
 
     def _parse_imgsz(self, value):
@@ -159,7 +170,7 @@ class Converter:
             cur.execute("SELECT args FROM model_conversions WHERE id=%s", (conversion_id,))
             row = cur.fetchone()
         args = dict(row[0]) if row and row[0] else {}
-        ctx = self._load_model(model_id)
+        ctx = self._load_model(model_id, scratch)
         imgsz = self._parse_imgsz(args.get("imgsz", 640))
         extra = self._export_overrides(args)
 
