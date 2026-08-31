@@ -2936,7 +2936,12 @@ td.nums {
 }
 
 .job-card {
-  display: flex;
+  /* Fixed columns so every row lines up regardless of job type: tag | name+message
+     (fluid) | progress (constant slot) | timing. The old flex layout let the bar float
+     under names of varying length and left the right side near-empty. */
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) 220px minmax(140px, auto);
+  grid-template-areas: 'tag body progress meta';
   align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 1rem;
@@ -2956,9 +2961,27 @@ td.nums {
   box-shadow: var(--shadow-sm);
 }
 
+.job-card > .job-tag {
+  grid-area: tag;
+  justify-self: start;
+}
+
 .job-card-body {
-  flex: 1;
+  grid-area: body;
   min-width: 0;
+}
+
+.job-card-msg {
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--text-sub);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.job-card-msg.is-error {
+  color: var(--red);
 }
 
 .job-card-head {
@@ -2980,11 +3003,10 @@ td.nums {
 }
 
 .job-card-progress {
+  grid-area: progress;
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 0.4rem;
-  max-width: 260px;
 }
 
 .job-card-progress-track {
@@ -3010,28 +3032,35 @@ td.nums {
 }
 
 .job-card-meta {
-  flex: none;
+  grid-area: meta;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 0.25rem;
-  margin-left: 0.5rem;
   font-size: 0.75rem;
   color: var(--text-sub);
   white-space: nowrap;
 }
 
-@media (max-width: 640px) {
+.job-card-worker {
+  color: var(--text-sub);
+  opacity: 0.8;
+}
+
+@media (max-width: 720px) {
   .job-card {
-    flex-wrap: wrap;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      'tag meta'
+      'body body'
+      'progress progress';
+    align-items: start;
   }
 
   .job-card-meta {
     flex-direction: row;
     flex-wrap: wrap;
-    justify-content: space-between;
-    align-items: flex-start;
-    width: 100%;
+    justify-content: flex-end;
     white-space: normal;
   }
 }

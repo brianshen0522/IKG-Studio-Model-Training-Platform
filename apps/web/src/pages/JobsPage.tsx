@@ -192,6 +192,14 @@ export function JobsPage() {
                 ? Math.round(Number(item.progress_percent))
                 : null;
             const tone = TONE_COLOR[item.execution_status.toUpperCase()];
+            // One informative line under the name: the failure reason for failed rows,
+            // the live progress message otherwise — both used to hide in the modal.
+            const failed = EXEC_STATUS_FAILED.includes(item.execution_status);
+            const msg = failed && item.error_message
+              ? { text: item.error_message, error: true }
+              : item.progress_message && item.execution_status !== 'SUCCEEDED'
+                ? { text: item.progress_message, error: false }
+                : null;
             return (
               <div
                 key={item.id}
@@ -223,17 +231,25 @@ export function JobsPage() {
                       <span className="job-card-sub">({item.business_status})</span>
                     )}
                   </div>
-                  {pct !== null && (
-                    <div className="job-card-progress">
-                      <div className="job-card-progress-track">
-                        <div className="job-card-progress-fill" style={{ width: `${pct}%` }} />
-                      </div>
-                      <span className="job-card-progress-pct">{pct}%</span>
+                  {msg && (
+                    <div className={`job-card-msg${msg.error ? ' is-error' : ''}`} title={msg.text}>
+                      {msg.text}
                     </div>
                   )}
                 </div>
+                {/* Always rendered so the bar sits in the same column on every row,
+                    whatever the job type or state. */}
+                <div className="job-card-progress">
+                  <div className="job-card-progress-track">
+                    <div className="job-card-progress-fill" style={{ width: `${pct ?? 0}%` }} />
+                  </div>
+                  <span className="job-card-progress-pct">{pct !== null ? `${pct}%` : '—'}</span>
+                </div>
                 <div className="job-card-meta">
-                  <span>{duration(item.created_at, item.finished_at)}</span>
+                  <span>
+                    {duration(item.created_at, item.finished_at)}
+                    {item.worker_id && <span className="job-card-worker"> · {item.worker_id}</span>}
+                  </span>
                   <span>{formatDate(item.created_at)}</span>
                 </div>
               </div>
