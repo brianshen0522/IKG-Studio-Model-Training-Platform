@@ -120,7 +120,6 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
   const [ratios, setRatios] = useState<[number, number, number]>([0.8, 0.1, 0.1]);
   const [seed, setSeed] = useState(42);
   const [ack, setAck] = useState(false);
-  const [targets, setTargets] = useState<string[]>(['train', 'val']);
   // Defaults alone don't count — the Split step only counts once the user actually
   // interacts with it, mirroring the training wizard's touched-based gating.
   const [splitTouched, setSplitTouched] = useState(false);
@@ -244,9 +243,7 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
           split: strategy === 'RANDOM'
             ? { strategy: 'RANDOM', train_ratio: train, val_ratio: val, test_ratio: test, random_seed: seed }
             : { strategy: 'SAME' },
-          ...(strategy === 'SAME'
-            ? { same_split_warning_acknowledged: true, same_split_targets: targets }
-            : {}),
+          ...(strategy === 'SAME' ? { same_split_warning_acknowledged: true } : {}),
         }, csrfToken);
       }
 
@@ -278,7 +275,7 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
     if (label === 'Sources') return sourceIds.length > 0;
     if (label === 'Classes') return validation?.compatible === true;
     if (label === 'Directory') return !!relPath;
-    if (label === 'Split') return splitTouched && (strategy === 'RANDOM' ? ratiosValid : ack && targets.length > 0);
+    if (label === 'Split') return splitTouched && (strategy === 'RANDOM' ? ratiosValid : ack);
     return false;
   };
 
@@ -289,7 +286,7 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
     if (lbl === 'Sources') return sourceIds.length > 0;
     if (lbl === 'Classes') return validation?.compatible === true;
     if (lbl === 'Directory') return !!relPath;
-    if (lbl === 'Split') return splitTouched && (strategy === 'RANDOM' ? ratiosValid : ack && targets.length > 0);
+    if (lbl === 'Split') return splitTouched && (strategy === 'RANDOM' ? ratiosValid : ack);
     return false;
   };
 
@@ -633,7 +630,7 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
                     onClick={() => { setStrategy('SAME'); setSplitTouched(true); }}
                   >
                     No split
-                    <span className="choice-sub">put every image in each split you pick</span>
+                    <span className="choice-sub">use every image for train, val and test</span>
                   </button>
                 </div>
               </div>
@@ -711,29 +708,15 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
               {strategy === 'SAME' && (
                 <>
                   <div className="warn-banner">
-                    No images are held back: every image is copied into <strong>every</strong> split
-                    selected below. Picking both train and val therefore makes them identical, so
-                    validation scores measure memorisation, not generalisation. Use this only to put
-                    everything in a single split, or deliberately to validate on the training data.
+                    No images are held back: train, val and test all read the <strong>same</strong> images
+                    (stored once, shared by all three). Validation and test scores therefore measure
+                    memorisation, not generalisation. Use this only deliberately — for example to
+                    smoke-test a pipeline or to validate on the training data itself.
                   </div>
                   <label className="check-row">
                     <input type="checkbox" checked={ack} onChange={(e) => { setAck(e.target.checked); setSplitTouched(true); }} />
                     <span>I understand the data-leakage risk</span>
                   </label>
-                  <div className="field">
-                    <span>Target splits</span>
-                    <div className="choice-row">
-                      {['train', 'val', 'test'].map((t) => (
-                        <button
-                          key={t}
-                          className={`choice choice-sm${targets.includes(t) ? ' selected' : ''}`}
-                          onClick={() => { setTargets(toggle(targets, t)); setSplitTouched(true); }}
-                        >
-                          {t}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
                 </>
               )}
             </>

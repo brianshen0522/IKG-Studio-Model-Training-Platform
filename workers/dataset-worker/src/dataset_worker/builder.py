@@ -262,17 +262,13 @@ class DatasetBuilder:
                     pairs[i]["splits"] = [s]
                     i += 1
         elif ctx["split_strategy"] == "SAME":
-            # Despite the name, nothing about the source's own layout is read — a source
-            # dataset is a flat images/ + labels/ pair and has no split structure to
-            # preserve. Every item is placed in every requested split, so selecting both
-            # train and val yields two identical sets. The UI labels this "No split".
-            targets = ctx["same_split_targets"] or ["train", "val"]
-            targets = [t for t in targets if t in SPLITS]
-            if not targets:
-                raise BuildError("DATASET_SPLIT_INVALID", "no valid same_split_targets")
+            # "No split" (the UI label): every image serves train, val and test alike.
+            # Only one physical copy is materialised (under train); data.yaml points
+            # val and test at the same folder, so the counts here are logical — what
+            # each split sees — not how many copies exist on disk.
             for p in pairs:
-                p["splits"] = list(targets)
-            for s in targets:
+                p["splits"] = ["train"]
+            for s in SPLITS:
                 counts[s] = len(pairs)
         else:
             raise BuildError("DATASET_SPLIT_INVALID", f"unsupported split strategy {ctx['split_strategy']}")
@@ -286,7 +282,10 @@ class DatasetBuilder:
                         f"Collected {len(pairs)} image/label pairs from {len(ctx['sources'])} sources")
         counts = self._assign_splits(ctx, pairs)
         joblog.progress(self.cfg.pg_conninfo(), job_execution_id, 30, "Split assigned")
-        present = [s for s in SPLITS if counts[s] > 0]
+        same = ctx["split_strategy"] == "SAME"
+        # The splits that get real directories; for SAME the logical val/test counts
+        # are aliases of train, not folders of their own.
+        present = ["train"] if same else [s for s in SPLITS if counts[s] > 0]
 
         shutil.rmtree(staging, ignore_errors=True)
         for s in present:
@@ -317,8 +316,12 @@ class DatasetBuilder:
 
         dataset_root = os.path.join(ctx["root_host"], ctx["relative_path"])
         data_yaml = {"path": dataset_root}
-        for s in present:
-            data_yaml[s] = f"images/{s}"
+        if same:
+            for s in SPLITS:
+                data_yaml[s] = "images/train"
+        else:
+            for s in present:
+                data_yaml[s] = f"images/{s}"
         data_yaml["names"] = {c["index"]: c["name"] for c in ctx["classes"]}
         data_yaml_bytes = yaml.safe_dump(data_yaml, allow_unicode=True, sort_keys=False).encode("utf-8")
         with open(os.path.join(staging, "data.yaml"), "wb") as f:

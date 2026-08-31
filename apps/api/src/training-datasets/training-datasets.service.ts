@@ -339,9 +339,9 @@ export class TrainingDatasetsService {
       if (!input.same_split_warning_acknowledged) {
         throw err(errorCode.DATASET_SAME_SPLIT_CONFIRMATION_REQUIRED, 'same_split_warning_acknowledged must be true for SAME split', 400);
       }
-      sameTargets = (input.same_split_targets && input.same_split_targets.length ? input.same_split_targets : ['train', 'val'])
-        .filter((t) => ['train', 'val', 'test'].includes(t));
-      if (sameTargets.length === 0) throw err(errorCode.DATASET_SPLIT_INVALID, 'same_split_targets invalid', 400);
+      // "No split" always feeds every image to all three splits; any client-sent
+      // target list is a leftover of the old picker and is ignored.
+      sameTargets = ['train', 'val', 'test'];
     }
 
     const correlationId = randomUUID();
@@ -561,7 +561,7 @@ export class TrainingDatasetsService {
   /** Resolves and validates the on-disk directory holding images/labels for a READY dataset. */
   private async resolveDatasetDir(datasetId: string) {
     const ds = await this.db.selectFrom('training_datasets')
-      .select(['id', 'status', 'relative_path', 'dataset_type_id', 'task_type'])
+      .select(['id', 'status', 'relative_path', 'dataset_type_id', 'task_type', 'split_strategy'])
       .where('id', '=', datasetId).executeTakeFirst();
     if (!ds) throw err(errorCode.TRAINING_DATASET_NOT_FOUND, 'training dataset not found', 404);
     if (ds.status !== 'READY' || !ds.relative_path) {
@@ -577,7 +577,18 @@ export class TrainingDatasetsService {
     if (!isWithinRoot(dir, root)) {
       throw err(errorCode.TRAINING_DATASET_PATH_INVALID, 'resolved dataset path escapes its root', 400);
     }
-    return { dir, taskType: ds.task_type };
+    return { dir, taskType: ds.task_type, splitStrategy: ds.split_strategy };
+  }
+
+  /**
+   * Splits to look in for a sample, in order. A SAME ("no split") build stores one
+   * physical copy under train and aliases val/test to it in data.yaml, so those
+   * splits fall back to the train directory. Older SAME builds that copied into
+   * each split still hit their own directory first.
+   */
+  private splitCandidates(split: string, splitStrategy: unknown): string[] {
+    if (!this.validSplit(split)) throw err(errorCode.VALIDATION_FAILED, 'split must be train, val or test', 400);
+    return splitStrategy === 'SAME' && split !== 'train' ? [split, 'train'] : [split];
   }
 
   private validSplit(split: string): split is 'train' | 'val' | 'test' {
@@ -595,17 +606,19 @@ export class TrainingDatasetsService {
   }
 
   async listSamples(datasetId: string, split: string, limit: number, offset: number) {
-    if (!this.validSplit(split)) throw err(errorCode.VALIDATION_FAILED, 'split must be train, val or test', 400);
-    const { dir } = await this.resolveDatasetDir(datasetId);
-    const imagesDir = normalizeRoot(path.join(dir, 'images', split));
-    let entries: string[];
-    try {
-      entries = (await fs.promises.readdir(imagesDir, { withFileTypes: true }))
-        .filter((e) => e.isFile() && !e.name.startsWith('.'))
-        .map((e) => e.name)
-        .sort();
-    } catch {
-      entries = [];
+    const { dir, splitStrategy } = await this.resolveDatasetDir(datasetId);
+    let entries: string[] = [];
+    for (const s of this.splitCandidates(split, splitStrategy)) {
+      const imagesDir = normalizeRoot(path.join(dir, 'images', s));
+      try {
+        entries = (await fs.promises.readdir(imagesDir, { withFileTypes: true }))
+          .filter((e) => e.isFile() && !e.name.startsWith('.'))
+          .map((e) => e.name)
+          .sort();
+        break;
+      } catch {
+        entries = [];
+      }
     }
     return {
       files: entries.slice(offset, offset + limit),
@@ -614,14 +627,15 @@ export class TrainingDatasetsService {
   }
 
   async getSampleImagePath(datasetId: string, split: string, filename: string): Promise<string> {
-    const { dir } = await this.resolveDatasetDir(datasetId);
-    const full = this.resolveSampleFile(dir, 'images', split, filename);
-    try {
-      await fs.promises.access(full, fs.constants.R_OK);
-    } catch {
-      throw err(errorCode.TRAINING_DATASET_NOT_FOUND, 'sample image not found', 404);
+    const { dir, splitStrategy } = await this.resolveDatasetDir(datasetId);
+    for (const s of this.splitCandidates(split, splitStrategy)) {
+      const full = this.resolveSampleFile(dir, 'images', s, filename);
+      try {
+        await fs.promises.access(full, fs.constants.R_OK);
+        return full;
+      } catch { /* try the next candidate */ }
     }
-    return full;
+    throw err(errorCode.TRAINING_DATASET_NOT_FOUND, 'sample image not found', 404);
   }
 
   /**
@@ -630,17 +644,19 @@ export class TrainingDatasetsService {
    * Both may carry a trailing confidence column, which is dropped.
    */
   async getSampleLabels(datasetId: string, split: string, filename: string) {
-    const { dir, taskType } = await this.resolveDatasetDir(datasetId);
+    const { dir, taskType, splitStrategy } = await this.resolveDatasetDir(datasetId);
     const stem = filename.replace(/\.[^.]+$/, '');
     const labelFilename = `${stem}.txt`;
-    const full = this.resolveSampleFile(dir, 'labels', split, labelFilename);
 
-    let text: string;
-    try {
-      text = await fs.promises.readFile(full, 'utf8');
-    } catch {
-      return { task_type: taskType, boxes: [] };
+    let text: string | null = null;
+    for (const s of this.splitCandidates(split, splitStrategy)) {
+      const full = this.resolveSampleFile(dir, 'labels', s, labelFilename);
+      try {
+        text = await fs.promises.readFile(full, 'utf8');
+        break;
+      } catch { /* try the next candidate */ }
     }
+    if (text === null) return { task_type: taskType, boxes: [] };
 
     const expected = taskType === 'OBB' ? 9 : 5;
     const boxes: Array<{ class_index: number; values: number[] }> = [];
