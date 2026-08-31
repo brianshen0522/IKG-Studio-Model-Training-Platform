@@ -15,6 +15,7 @@ import { Collapsible } from '../components/Collapsible';
 import { CopyButton } from '../components/CopyButton';
 import { buildYoloCommand } from '@model-trainer/shared-types';
 import { ModelConversionWizard } from '../components/ModelConversionWizard';
+import { JobDetailModal } from '../components/JobDetailModal';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useUiStore } from '../stores/ui';
 import { useUrlParam } from '../lib/urlState';
@@ -98,7 +99,7 @@ export function ModelDetailPage({ id, onBack }: { id: string; onBack: () => void
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [preview, setPreview] = useState<PreviewState>(null);
   const [showConversionWizard, setShowConversionWizard] = useState(false);
-  const [, setJobId] = useUrlParam('jobId');
+  const [jobModalId, setJobModalId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [conversionToDelete, setConversionToDelete] = useState<string | null>(null);
 
@@ -209,12 +210,8 @@ export function ModelDetailPage({ id, onBack }: { id: string; onBack: () => void
   const hp = trainingJob.data?.hyperparameters ?? {};
   const hpEntries = Object.entries(hp).sort(([a], [b]) => a.localeCompare(b));
 
-  // From the Training block: jump into the job's detail view and mark where to return,
-  // so the training page's Back comes back here rather than to the training list.
-  const openJob = (jobExecutionId: string) => {
-    setJobId(jobExecutionId);
-    setPage('jobs');
-  };
+  // Conversion rows open the job as a floating window so the model page stays put.
+  const openJob = (jobExecutionId: string) => setJobModalId(jobExecutionId);
 
   const openTrainingJob = () => {
     if (!model?.source_training_job_id) return;
@@ -425,7 +422,7 @@ export function ModelDetailPage({ id, onBack }: { id: string; onBack: () => void
                 <section className="card">
                   <h3 className="card-title">
                     OpenVINO Conversions
-                    <span className="card-hint">IR exported by admin; download the .zip from MinIO</span>
+                    <span className="card-hint">click a row for job details · grab the .zip from the Download column</span>
                   </h3>
                   <div className="table-wrap">
                     <table>
@@ -523,6 +520,7 @@ export function ModelDetailPage({ id, onBack }: { id: string; onBack: () => void
           onCreated={() => queryClient.invalidateQueries({ queryKey: ['model-conversions', id] })}
         />
       )}
+      {jobModalId && <JobDetailModal id={jobModalId} onClose={() => setJobModalId(null)} />}
       {preview?.kind === 'image' && (
         <ChartLightbox
           artifacts={imageArts}

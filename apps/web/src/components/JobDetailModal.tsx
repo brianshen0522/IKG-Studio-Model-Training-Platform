@@ -158,6 +158,14 @@ export function JobDetailModal({ id, onClose }: { id: string; onClose: () => voi
     [artifacts],
   );
 
+  // A conversion's deliverable is its OpenVINO .zip — offer it right here so a
+  // finished job hands over its output without leaving the modal. Other job types
+  // surface their outputs on their own pages.
+  const downloadArtifacts = useMemo(
+    () => (artifacts ?? []).filter((a) => a.artifact_type_code === 'OPENVINO_ZIP'),
+    [artifacts],
+  );
+
   const [logContent, setLogContent] = useState<string | null>(null);
   const [logLoading, setLogLoading] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
@@ -314,6 +322,21 @@ export function JobDetailModal({ id, onClose }: { id: string; onClose: () => voi
                   </div>
                 )}
               </div>
+
+              {downloadArtifacts.length > 0 && (
+                <div className="job-timing" style={{ marginTop: 8 }}>
+                  <div className="job-timing-item">
+                    <span className="job-timing-label">Download</span>
+                    <span className="job-timing-value">
+                      {downloadArtifacts.map((a) => (
+                        <a key={a.id} href={`/api/v1/artifacts/${a.id}/download`} style={{ marginRight: 10 }}>
+                          {a.filename}
+                        </a>
+                      ))}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="job-log-section">
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '0 0 6px' }}>
