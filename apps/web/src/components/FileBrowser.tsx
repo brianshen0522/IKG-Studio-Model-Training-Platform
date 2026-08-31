@@ -20,6 +20,13 @@ interface FileBrowserProps {
   value?: string;
   onSelect: (path: string, relativePath: string) => void;
   onClose: () => void;
+  /** Root-relative folder paths rendered grey and unclickable, mapped to the reason. */
+  disabledPaths?: Record<string, string>;
+  /** Footer button label (default "Select This Folder"). */
+  selectLabel?: string;
+  /** Forbid selecting the root itself — the caller needs a real subfolder. */
+  disableRootSelect?: boolean;
+  title?: string;
 }
 
 export function FileBrowser({
@@ -29,6 +36,10 @@ export function FileBrowser({
   value,
   onSelect,
   onClose,
+  disabledPaths,
+  selectLabel,
+  disableRootSelect,
+  title,
 }: FileBrowserProps) {
   const [data, setData] = useState<BrowseResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -107,9 +118,12 @@ export function FileBrowser({
     ? (data?.delegated || []).filter((d) => d.name.toLowerCase().includes(search.toLowerCase()))
     : data?.delegated || [];
 
+  const currentDisabledReason = disabledPaths?.[relativePath]
+    ?? (disableRootSelect && !relativePath ? 'Pick a folder inside the root' : undefined);
+
   return (
     <Modal
-      title={mode === 'folder' ? 'Select Folder' : 'Select File'}
+      title={title ?? (mode === 'folder' ? 'Select Folder' : 'Select File')}
       onClose={onClose}
       footer={
         mode === 'folder' ? (
@@ -120,10 +134,11 @@ export function FileBrowser({
             <button
               className="btn btn-primary"
               style={{ width: 'auto', whiteSpace: 'nowrap' }}
-              disabled={loading || !data}
+              disabled={loading || !data || currentDisabledReason != null}
+              title={currentDisabledReason}
               onClick={selectFolder}
             >
-              Select This Folder
+              {selectLabel ?? 'Select This Folder'}
             </button>
           </div>
         ) : undefined
@@ -176,12 +191,22 @@ export function FileBrowser({
               {folders.length === 0 && files.length === 0 && delegated.length === 0 && (
                 <div className="fb-empty">No items</div>
               )}
-              {folders.map((f) => (
-                <div key={f} className="fb-item" onClick={() => goInto(f)}>
-                  <span className="fb-icon">📁</span>
-                  <span>{f}</span>
-                </div>
-              ))}
+              {folders.map((f) => {
+                const rel = relativePath ? `${relativePath}/${f}` : f;
+                const reason = disabledPaths?.[rel];
+                return reason != null ? (
+                  <div key={f} className="fb-item is-disabled" title={reason}>
+                    <span className="fb-icon">📁</span>
+                    <span>{f}</span>
+                    <span className="fb-owner">{reason}</span>
+                  </div>
+                ) : (
+                  <div key={f} className="fb-item" onClick={() => goInto(f)}>
+                    <span className="fb-icon">📁</span>
+                    <span>{f}</span>
+                  </div>
+                );
+              })}
               {delegated.map((d) => (
                 <div
                   key={d.name}

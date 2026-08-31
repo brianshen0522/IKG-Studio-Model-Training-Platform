@@ -513,14 +513,37 @@ export class SourceDatasetsService {
     // One-click registration from the folder grid passes no task type, and guessing
     // wrong makes the scan fail on geometry. Read it off the labels instead.
     let taskType = input.task_type;
+    const eff = await this.tree.effectiveBasePath(this.db, input.dataset_type_id);
     if (!taskType) {
-      const eff = await this.tree.effectiveBasePath(this.db, input.dataset_type_id);
       taskType = (eff ? await sniffTaskType(`${eff.dataset_path}/${input.sub_path}`) : null) ?? 'OBB';
     }
-    return this.register({
+    const row = await this.register({
       name, dataset_type_id: input.dataset_type_id,
       task_type: taskType, sub_path: input.sub_path,
     }, actor);
+
+    // A folder registered straight from the file browser isn't in the directory index
+    // until the next reindex, which would render its fresh card as "missing on disk".
+    // Index this one folder now — counting two directories is cheap; a failure here is
+    // harmless, the next reindex reconciles.
+    if (eff) {
+      try {
+        const dir = path.join(eff.dataset_path, input.sub_path);
+        const count = async (sub: string) => {
+          try {
+            return (await fs.promises.readdir(path.join(dir, sub))).filter((n) => !n.startsWith('.')).length;
+          } catch { return 0; }
+        };
+        const [imageCount, labelCount] = [await count('images'), await count('labels')];
+        await this.db.insertInto('dataset_directory_index').values({
+          dataset_type_id: input.dataset_type_id, sub_path: input.sub_path,
+          image_count: imageCount, label_count: labelCount,
+        }).onConflict((oc) => oc.columns(['dataset_type_id', 'sub_path']).doUpdateSet({
+          image_count: imageCount, label_count: labelCount, discovered_at: sql`now()`,
+        })).execute();
+      } catch { /* next reindex fills it in */ }
+    }
+    return row;
   }
 
   /**

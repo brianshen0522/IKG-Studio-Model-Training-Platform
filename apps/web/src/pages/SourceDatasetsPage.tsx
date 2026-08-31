@@ -10,6 +10,7 @@ import { useUrlParam } from '../lib/urlState';
 import { useUiStore } from '../stores/ui';
 import { CollapsibleTypeGroup, useTypeGroupCollapse } from '../components/CollapsibleTypeGroup';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { FileBrowser } from '../components/FileBrowser';
 import { MultiSelect, type MultiSelectOption } from '../components/MultiSelect';
 import { SourceDatasetDetailPage } from './SourceDatasetDetailPage';
 
@@ -76,6 +77,7 @@ export function SourceDatasetsPage() {
   >(null);
   const [selectedId, setSelectedId] = useUrlParam('sourceDatasetId');
   const [showArchived, setShowArchived] = useState(false);
+  const [browseTypeId, setBrowseTypeId] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['source-datasets', 'by-type'],
@@ -256,6 +258,13 @@ export function SourceDatasetsPage() {
               onClick={() => rescanTypeMut.mutate(g.dataset_type_id)}
             >
               {g.reindexing || rescanTypeMut.isPending ? 'Reindexing…' : 'Rescan type'}
+            </button>
+            <button
+              className="btn btn-sm btn-ghost"
+              title="Browse the folder tree on disk and register one dataset directly — no full reindex needed"
+              onClick={() => setBrowseTypeId(g.dataset_type_id)}
+            >
+              Browse…
             </button>
             {(() => {
               const allSelected = g.folders.length > 0 && g.folders.every((f) => selected[g.dataset_type_id]?.has(f.sub_path));
@@ -479,6 +488,30 @@ export function SourceDatasetsPage() {
           }}
         />
       )}
+
+      {browseTypeId && (() => {
+        // Already-registered folders are greyed out in the browser — the point of this
+        // flow is registering ONE new folder straight from disk, no reindex needed.
+        const grp = (data ?? []).find((g) => g.dataset_type_id === browseTypeId);
+        const disabled: Record<string, string> = {};
+        for (const f of grp?.folders ?? []) {
+          if (f.registered) disabled[f.sub_path] = 'Already registered';
+        }
+        return (
+          <FileBrowser
+            datasetTypeId={browseTypeId}
+            root="source"
+            title="Register a Source Dataset"
+            selectLabel="Register & scan"
+            disableRootSelect
+            disabledPaths={disabled}
+            onSelect={(_abs, rel) => {
+              if (rel) ensureMut.mutate({ dataset_type_id: browseTypeId, sub_path: rel });
+            }}
+            onClose={() => setBrowseTypeId(null)}
+          />
+        );
+      })()}
     </section>
   );
 }

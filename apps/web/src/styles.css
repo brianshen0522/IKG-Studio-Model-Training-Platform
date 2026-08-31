@@ -1443,11 +1443,14 @@ tbody tr:hover {
 
 /* Another dataset type's root: visible so the listing still matches the disk, but not
    navigable — its contents belong to that type. */
-.fb-item.is-delegated {
+.fb-item.is-delegated,
+.fb-item.is-disabled {
   cursor: not-allowed;
   color: var(--text-sub);
 }
-.fb-item.is-delegated:hover { background: transparent; }
+.fb-item.is-delegated:hover,
+.fb-item.is-disabled:hover { background: transparent; }
+.fb-item.is-disabled { opacity: 0.55; }
 .fb-owner {
   margin-left: auto;
   font-size: 0.72rem;
