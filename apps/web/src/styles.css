@@ -2112,6 +2112,13 @@ tbody tr:hover {
 .ratio-train { background: var(--primary); color: #fff; }
 .ratio-val { background: var(--blue); color: #fff; }
 .ratio-test { background: var(--yellow); }
+/* "No split": one full-width segment blending the three split colours — the same
+   images serve train, val and test, so there are no proportions to draw. */
+.ratio-same {
+  background: linear-gradient(90deg, var(--primary), var(--blue) 55%, var(--yellow));
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
 
 .ratio-inputs {
   display: flex;

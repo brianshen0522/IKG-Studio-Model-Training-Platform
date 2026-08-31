@@ -23,6 +23,7 @@ interface TrainingDataset {
   train_count: number | null;
   val_count: number | null;
   test_count: number | null;
+  split_strategy: string | null;
   dataset_type_id: string;
   created_at: string;
 }
@@ -139,7 +140,9 @@ export function TrainingDatasetsPage() {
                   </div>
                   {d.description && <div className="folder-sub">{d.description}</div>}
                   <div className="folder-sub">
-                    {d.train_count ?? 0} / {d.val_count ?? 0} / {d.test_count ?? 0} train / val / test
+                    {d.split_strategy === 'SAME'
+                      ? `${Math.max(d.train_count ?? 0, d.val_count ?? 0, d.test_count ?? 0)} images · no split`
+                      : `${d.train_count ?? 0} / ${d.val_count ?? 0} / ${d.test_count ?? 0} train / val / test`}
                     {' · '}
                     {d.class_count ?? '—'} classes
                   </div>

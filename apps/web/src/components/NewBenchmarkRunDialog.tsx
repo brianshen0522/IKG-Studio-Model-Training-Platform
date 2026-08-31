@@ -22,6 +22,7 @@ interface TrainingDatasetOption {
   val_count?: string;
   test_count?: string;
   class_count?: number;
+  split_strategy?: string | null;
 }
 
 interface ModelOption {
@@ -342,7 +343,10 @@ export function NewBenchmarkRunDialog({ onClose }: { onClose: () => void }) {
                         <div style={{ marginLeft: '10px', flex: 1 }}>
                           <div style={{ fontWeight: 500, fontSize: '13px', color: 'var(--text)' }}>{d.name}</div>
                           <div style={{ fontSize: '11px', color: 'var(--text-sub)' }}>
-                            {tr + va + te} images (T{tr}/V{va}/Te{te}){d.class_count != null ? ` · ${d.class_count} classes` : ''} · {d.task_type}
+                            {d.split_strategy === 'SAME'
+                              ? `${Math.max(tr, va, te)} images (no split — shared)`
+                              : `${tr + va + te} images (T${tr}/V${va}/Te${te})`}
+                            {d.class_count != null ? ` · ${d.class_count} classes` : ''} · {d.task_type}
                           </div>
                         </div>
                       </label>

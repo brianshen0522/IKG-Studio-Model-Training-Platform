@@ -181,7 +181,12 @@ export function TrainingDatasetDetailPage({ id, onBack }: { id: string; onBack: 
   const trainN = Number(ds?.train_count ?? 0);
   const valN = Number(ds?.val_count ?? 0);
   const testN = Number(ds?.test_count ?? 0);
-  const total = trainN + valN + testN;
+  // A "no split" (SAME) build stores every image once and serves it to all three
+  // splits, so the per-split counts are copies of one another — summing them would
+  // triple the total and render a meaningless 33/33/33 bar.
+  const isSame = ds?.split_strategy === 'SAME';
+  const sameN = Math.max(trainN, valN, testN);
+  const total = isSame ? sameN : trainN + valN + testN;
   const pct = (n: string | number | null | undefined) =>
     total > 0 && n != null ? `${((Number(n) / total) * 100).toFixed(0)}%` : '—';
 
@@ -284,18 +289,36 @@ export function TrainingDatasetDetailPage({ id, onBack }: { id: string; onBack: 
                     Dataset Splits
                     <span className="card-hint">{total.toLocaleString()} images total</span>
                   </h3>
-                  {total > 0 && (
-                    <div className="ratio-bar" aria-label="Dataset split proportions">
-                      {trainN > 0 && <div className="ratio-seg ratio-train" style={{ width: pct(ds.train_count) }}>Train {pct(ds.train_count)}</div>}
-                      {valN > 0 && <div className="ratio-seg ratio-val" style={{ width: pct(ds.val_count) }}>Val {pct(ds.val_count)}</div>}
-                      {testN > 0 && <div className="ratio-seg ratio-test" style={{ width: pct(ds.test_count) }}>Test {pct(ds.test_count)}</div>}
-                    </div>
+                  {isSame ? (
+                    <>
+                      {total > 0 && (
+                        <div className="ratio-bar" aria-label="No split — all images shared by train, val and test">
+                          <div className="ratio-seg ratio-same" style={{ width: '100%' }}>
+                            All {total.toLocaleString()} images · train / val / test
+                          </div>
+                        </div>
+                      )}
+                      <dl className="dl">
+                        <div><dt>Split</dt><dd>No split — every image serves train, validation and test</dd></div>
+                        <div><dt>Images</dt><dd>{total.toLocaleString()} (stored once, shared by all three splits)</dd></div>
+                      </dl>
+                    </>
+                  ) : (
+                    <>
+                      {total > 0 && (
+                        <div className="ratio-bar" aria-label="Dataset split proportions">
+                          {trainN > 0 && <div className="ratio-seg ratio-train" style={{ width: pct(ds.train_count) }}>Train {pct(ds.train_count)}</div>}
+                          {valN > 0 && <div className="ratio-seg ratio-val" style={{ width: pct(ds.val_count) }}>Val {pct(ds.val_count)}</div>}
+                          {testN > 0 && <div className="ratio-seg ratio-test" style={{ width: pct(ds.test_count) }}>Test {pct(ds.test_count)}</div>}
+                        </div>
+                      )}
+                      <dl className="dl">
+                        <div><dt>Train</dt><dd>{trainN.toLocaleString()} images ({pct(ds.train_count)})</dd></div>
+                        <div><dt>Validation</dt><dd>{valN.toLocaleString()} images ({pct(ds.val_count)})</dd></div>
+                        <div><dt>Test</dt><dd>{testN.toLocaleString()} images ({pct(ds.test_count)})</dd></div>
+                      </dl>
+                    </>
                   )}
-                  <dl className="dl">
-                    <div><dt>Train</dt><dd>{trainN.toLocaleString()} images ({pct(ds.train_count)})</dd></div>
-                    <div><dt>Validation</dt><dd>{valN.toLocaleString()} images ({pct(ds.val_count)})</dd></div>
-                    <div><dt>Test</dt><dd>{testN.toLocaleString()} images ({pct(ds.test_count)})</dd></div>
-                  </dl>
                 </section>
               )}
 

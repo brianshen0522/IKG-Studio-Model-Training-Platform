@@ -20,6 +20,16 @@ interface DatasetItem {
   dataset_type_id: string; task_type: string; status: string;
   train_count: string; val_count: string; test_count: string;
   class_count: number; ready_at: string | null;
+  split_strategy: string | null;
+}
+
+/** A SAME ("no split") dataset shares one image set across all three splits, so
+ * summing its per-split counts would triple the real total. */
+function imagesSummary(d: DatasetItem): string {
+  const tr = Number(d.train_count), va = Number(d.val_count), te = Number(d.test_count);
+  return d.split_strategy === 'SAME'
+    ? `${Math.max(tr, va, te)} images (no split — shared by train/val/test)`
+    : `${tr + va + te} images (T${tr}/V${va}/Te${te})`;
 }
 
 interface ModelItem {
@@ -651,7 +661,7 @@ export function NewTrainingWizard({ onClose }: { onClose: () => void }) {
                   options={readyDatasets.map((d) => ({
                     value: d.id,
                     label: d.name,
-                    hint: `${d.task_type} · ${Number(d.train_count) + Number(d.val_count) + Number(d.test_count)} images (T${Number(d.train_count)}/V${Number(d.val_count)}/Te${Number(d.test_count)}) · ${d.class_count} classes`,
+                    hint: `${d.task_type} · ${imagesSummary(d)} · ${d.class_count} classes`,
                   }))}
                   value={s.datasetId}
                   onChange={(v) => setS((prev) => ({ ...prev, datasetId: v, cliOverride: null }))}
@@ -667,7 +677,7 @@ export function NewTrainingWizard({ onClose }: { onClose: () => void }) {
               )}
               {selDataset && (
                 <div className="version-summary">
-                  <div>Images: {Number(selDataset.train_count) + Number(selDataset.val_count) + Number(selDataset.test_count)} (Train {Number(selDataset.train_count)} · Val {Number(selDataset.val_count)} · Test {Number(selDataset.test_count)})</div>
+                  <div>{imagesSummary(selDataset)}</div>
                   <div>Classes: {selDataset.class_count} · Ready: {selDataset.ready_at ? new Date(toParsableIso(selDataset.ready_at)).toLocaleDateString() : 'N/A'}</div>
                 </div>
               )}
