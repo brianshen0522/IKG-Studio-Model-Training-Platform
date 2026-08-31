@@ -126,30 +126,40 @@ export function validateYoloArgs(
 }
 
 /**
- * Argument spec for `Model.export()`, which differs from the training set (`simplify`,
- * `opset`… are not training arguments). Mirrors the worker's whitelist (ultralytics
- * `DEFAULT_CFG_DICT` ∩ export params) — `half`/`fp16`/`int8` are NOT valid here, so a
- * conversion that passes them would fail on the worker. A key that is only a training
- * argument (e.g. `epochs`) is also rejected for exports.
+ * Argument spec for `Model.export()` with `format=openvino` — the only format the
+ * platform converts to. Ultralytics validates export arguments per format and fails
+ * the whole export when a non-default value isn't supported by the chosen format, so
+ * this spec lists only what OpenVINO actually accepts; format-specific arguments of
+ * other exports live in OPENVINO_INVALID_ARGS with the reason. `half`/`fp16`/`int8`
+ * are NOT valid here either, so a conversion that passes them would fail on the worker.
  */
 export const EXPORT_ARGS: Record<string, YoloArgSpec> = {
   format: { kind: 'other', default: 'openvino' },
   imgsz: { kind: 'other', default: 640 },
   dynamic: { kind: 'bool', default: false },
-  simplify: { kind: 'bool', default: false },
   nms: { kind: 'bool', default: false },
-  keras: { kind: 'bool', default: false },
-  optimize: { kind: 'bool', default: false },
   end2end: { kind: 'bool', default: false },
   augment: { kind: 'bool', default: false },
   val: { kind: 'bool', default: true },
   verbose: { kind: 'bool', default: true },
-  opset: { kind: 'int', default: null },
   batch: { kind: 'int', default: 1 },
   max_det: { kind: 'int', default: null },
   vid_stride: { kind: 'int', default: 1 },
-  workspace: { kind: 'float', default: null },
-  device: { kind: 'other', default: null },
+};
+
+/**
+ * Export arguments other formats accept but `format=openvino` does not. The Ultralytics
+ * exporter hard-fails when any of these is set to a non-default value, so they are
+ * refused up front with the reason instead of an AssertionError mid-conversion.
+ * `device` is different: valid for the format, but passed explicitly by the worker.
+ */
+export const OPENVINO_INVALID_ARGS: Record<string, string> = {
+  opset: 'only ONNX-based exports take an opset — not supported for format=openvino',
+  simplify: 'only ONNX-based exports are simplified — not supported for format=openvino',
+  keras: 'TensorFlow exports only — not supported for format=openvino',
+  optimize: 'TorchScript exports only — not supported for format=openvino',
+  workspace: 'TensorRT exports only — not supported for format=openvino',
+  device: 'set by the platform — the worker exports on its own device',
 };
 
 /** Validate a conversion argument map against the Ultralytics export spec. */
@@ -161,6 +171,10 @@ export function validateExportArgs(
   for (const [key, value] of Object.entries(args)) {
     if (!opts.allowReserved && key in RESERVED_YOLO_ARGS) {
       issues.push({ key, message: `set by the platform — ${RESERVED_YOLO_ARGS[key]}` });
+      continue;
+    }
+    if (key in OPENVINO_INVALID_ARGS) {
+      issues.push({ key, message: OPENVINO_INVALID_ARGS[key] });
       continue;
     }
     const spec = EXPORT_ARGS[key];

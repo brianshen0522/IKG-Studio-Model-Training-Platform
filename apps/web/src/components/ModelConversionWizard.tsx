@@ -15,11 +15,9 @@ interface FormState {
   imgsz: number;
   imgszW: number | null;
   dynamic: boolean;
-  simplify: boolean;
   nms: boolean;
   max_det: number;
   batch: string;
-  opset: string;
   cliOverride: string | null;
 }
 
@@ -78,11 +76,9 @@ function buildExportCli(state: FormState, modelFile: string): string {
   const parts: string[] = ['yolo', 'export', `model=${modelFile}`, 'format=openvino'];
   parts.push(`imgsz=${state.imgszW != null ? `${state.imgsz},${state.imgszW}` : state.imgsz}`);
   if (state.dynamic) parts.push('dynamic=True');
-  if (state.simplify) parts.push('simplify=True');
   if (state.nms) parts.push('nms=True');
   parts.push(`max_det=${state.max_det}`);
   if (state.batch) parts.push(`batch=${state.batch}`);
-  if (state.opset) parts.push(`opset=${state.opset}`);
   return parts.join(' ');
 }
 
@@ -96,12 +92,10 @@ export function ModelConversionWizard({ model, onClose, onCreated }: Props) {
   const [s, setS] = useState<FormState>({
     imgsz: defaultImgszH,
     imgszW: defaultImgszW,
-    dynamic: false,
-    simplify: true,
+    dynamic: true,
     nms: false,
     max_det: 300,
     batch: '',
-    opset: '',
     cliOverride: null,
   });
 
@@ -136,11 +130,10 @@ export function ModelConversionWizard({ model, onClose, onCreated }: Props) {
       } else {
         args = {
           imgsz: s.imgszW != null ? [s.imgsz, s.imgszW] : s.imgsz,
-          dynamic: s.dynamic, simplify: s.simplify,
+          dynamic: s.dynamic,
           nms: s.nms, max_det: s.max_det,
         };
         if (s.batch) args.batch = Number(s.batch);
-        if (s.opset) args.opset = Number(s.opset);
       }
       return apiSend<{ id: string }>('POST', `/models/${model.id}/conversions`, { args }, csrfToken);
     },
@@ -182,16 +175,19 @@ export function ModelConversionWizard({ model, onClose, onCreated }: Props) {
             <TextField label="Batch" value={s.batch}
               onChange={(v) => setS((p) => ({ ...p, batch: v, cliOverride: null }))}
               placeholder="16 (optional)" />
-            <TextField label="Opset" value={s.opset}
-              onChange={(v) => setS((p) => ({ ...p, opset: v, cliOverride: null }))}
-              placeholder="auto (optional)" />
             <IntField label="Max detections" value={s.max_det}
               onChange={(v) => setS((p) => ({ ...p, max_det: v, cliOverride: null }))} min={1} max={10000} />
             <BoolField label="Dynamic shape" value={s.dynamic} onChange={(v) => setS((p) => ({ ...p, dynamic: v, cliOverride: null }))} />
-            <BoolField label="Simplify" value={s.simplify} onChange={(v) => setS((p) => ({ ...p, simplify: v, cliOverride: null }))} />
             <BoolField label="Include NMS" value={s.nms} onChange={(v) => setS((p) => ({ ...p, nms: v, cliOverride: null }))} />
           </ExportSection>
         </div>
+
+        {s.cliOverride === null && s.dynamic && s.nms && !s.batch && (
+          <div className="hint" style={{ marginTop: 8 }}>
+            Dynamic shape together with NMS works best with an explicit max batch size
+            (e.g. <code>batch=16</code>) — Ultralytics warns about this combination otherwise.
+          </div>
+        )}
 
         <div style={{ marginTop: 14 }}>
           <div className="cli-block">

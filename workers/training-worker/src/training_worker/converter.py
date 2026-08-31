@@ -40,13 +40,18 @@ def _sha256(path: str) -> str:
 
 # Platform-owned export arguments, mirrored from conversions.service.ts (RESERVED_ARGS).
 # `model`/`format` are derived from the conversion itself; the rest would point export
-# at other data or write outside the scratch dir.
+# at other data or write outside the scratch dir. `device` is passed explicitly by
+# _convert — letting it through **extra would raise "multiple values for keyword".
 _RESERVED_ARGS = frozenset({
     "model", "format", "source", "data", "project", "name", "save_dir", "exist_ok",
-    "resume", "mode",
+    "resume", "mode", "device",
 })
 # INT8 needs a calibration dataset; a conversion has none.
 _UNSUPPORTED_ARGS = frozenset({"int8", "quantize"})
+# Valid export arguments that other formats accept but format=openvino does not —
+# Ultralytics asserts per format and would fail the export mid-run; reject up front
+# with a readable message instead (mirrored in shared-types OPENVINO_INVALID_ARGS).
+_OPENVINO_INVALID_ARGS = frozenset({"opset", "simplify", "keras", "optimize", "workspace"})
 # Passed explicitly by _convert and therefore not taken from args.
 _EXPLICIT_ARGS = frozenset({"imgsz"})
 
@@ -151,6 +156,9 @@ class Converter:
                 continue
             if key in _UNSUPPORTED_ARGS:
                 rejected.append(f"{key} (requires calibration data)")
+                continue
+            if key in _OPENVINO_INVALID_ARGS:
+                rejected.append(f"{key} (not supported for OpenVINO export)")
                 continue
             if key not in DEFAULT_CFG_DICT:
                 rejected.append(f"{key} (not a YOLO export argument)")
