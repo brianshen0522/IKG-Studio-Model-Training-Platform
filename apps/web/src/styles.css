@@ -1101,6 +1101,13 @@ tbody tr:hover {
   animation: badgePop 300ms ease-out;
 }
 
+/* Jobs-in-progress count: amber "running" tone so it never reads as an alert the way
+   the red notification badge does. */
+.nav-badge-jobs {
+  background: var(--yellow);
+  color: #1a1a1a;
+}
+
 /* ================ Dashboard ================ */
 .stat-grid {
   display: grid;

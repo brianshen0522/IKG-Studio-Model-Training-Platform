@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../stores/auth';
 import { useUiStore, type Page } from '../stores/ui';
 import { queryClient } from '../lib/queryClient';
-import { apiGet } from '../lib/api';
+import { apiGet, apiGetList } from '../lib/api';
 import { ModelsPage } from '../pages/ModelsPage';
 import { TrainingJobsPage } from '../pages/TrainingJobsPage';
 import { BenchmarksPage } from '../pages/BenchmarksPage';
@@ -57,6 +57,7 @@ export function AppShell() {
           queryClient.invalidateQueries({ queryKey: ['benchmark-runs'] });
         }
         queryClient.invalidateQueries({ queryKey: ['jobs'] });
+        queryClient.invalidateQueries({ queryKey: ['jobs-active-count'] });
       } catch {
         /* ignore malformed */
       }
@@ -82,6 +83,16 @@ export function AppShell() {
     enabled: !!user?.id,
   });
   const unread = unreadData?.unread ?? 0;
+
+  // Running/queued job count for the Jobs nav badge — the list endpoint's meta.total
+  // with size=1 is the cheapest count the API offers.
+  const { data: activeJobsData } = useQuery({
+    queryKey: ['jobs-active-count'],
+    queryFn: () => apiGetList<unknown>('/jobs?active=true&size=1'),
+    refetchInterval: 10000,
+    enabled: !!user?.id,
+  });
+  const activeJobs = activeJobsData?.meta.total ?? 0;
 
   const { data: storageStatus } = useQuery({
     queryKey: ['storage-status'],
@@ -115,6 +126,11 @@ export function AppShell() {
               {n.label}
               {n.key === 'notifications' && unread > 0 && (
                 <span className="nav-badge">{unread > 99 ? '99+' : unread}</span>
+              )}
+              {n.key === 'jobs' && activeJobs > 0 && (
+                <span className="nav-badge nav-badge-jobs" title={`${activeJobs} job${activeJobs === 1 ? '' : 's'} in progress`}>
+                  {activeJobs > 99 ? '99+' : activeJobs}
+                </span>
               )}
             </button>
           ))}
