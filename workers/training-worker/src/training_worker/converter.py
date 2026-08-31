@@ -189,16 +189,26 @@ class Converter:
 
         log.info("starting openvino export", conversion_id=conversion_id, model=ctx["pt_path"],
                  imgsz=imgsz, device=self.cfg.device, overrides=sorted(extra) or None)
-        export_dir = os.path.join(scratch, "run")
+        # Ultralytics derives the export folder and IR file names from the weights
+        # file: <stem>_openvino_model/<stem>.xml. The stored .pt carries a checksum
+        # (or model-id) suffix, so stage a copy under the model's clean name — which
+        # also pins the export output inside scratch (export writes next to the
+        # weights file, ignoring project/name).
+        stem = _safe_stem(ctx["name"])
+        staged_pt = os.path.join(scratch, f"{stem}.pt")
+        if os.path.abspath(ctx["pt_path"]) != os.path.abspath(staged_pt):
+            try:
+                os.link(ctx["pt_path"], staged_pt)
+            except OSError:
+                shutil.copy2(ctx["pt_path"], staged_pt)
         try:
-            model = YOLO(ctx["pt_path"])
+            model = YOLO(staged_pt)
         except Exception as e:  # noqa: BLE001
             raise ConversionError("PREPARATION", "MODEL_LOAD_FAILED", f"could not load model: {str(e)[:300]}")
         log_buf = io.StringIO()
         with contextlib.redirect_stdout(log_buf), contextlib.redirect_stderr(log_buf):
             out = model.export(
-                format="openvino", imgsz=imgsz, device=self.cfg.device,
-                project=scratch, name="run", **extra,
+                format="openvino", imgsz=imgsz, device=self.cfg.device, **extra,
             )
         log_path = os.path.join(scratch, "export.log")
         with open(log_path, "w") as f:
@@ -207,7 +217,7 @@ class Converter:
         if out is None or not os.path.isdir(out):
             raise ConversionError("EXPORT", "MODEL_CONVERSION_NO_OUTPUT",
                                   f"export produced no OpenVINO model directory ({out})")
-        zip_name = f"{_safe_stem(ctx['name'])}_openvino.zip"
+        zip_name = f"{stem}_openvino_model.zip"
         zip_path = os.path.join(scratch, zip_name)
         names = _zip_dir(out, zip_path)
         return zip_path, names
@@ -306,13 +316,15 @@ def _safe_stem(name: str) -> str:
 
 
 def _zip_dir(src_dir: str, zip_path: str) -> list:
-    """Zip the contents of the OpenVINO export directory (IR is a folder of files)."""
+    """Zip the OpenVINO export directory, keeping the directory itself as the zip's
+    top-level entry — unzipping yields <name>_openvino_model/ rather than loose files."""
     names = []
+    root_name = os.path.basename(os.path.normpath(src_dir))
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for root, _dirs, files in os.walk(src_dir):
             for fn in sorted(files):
                 full = os.path.join(root, fn)
-                arc = os.path.relpath(full, src_dir)
+                arc = os.path.join(root_name, os.path.relpath(full, src_dir))
                 zf.write(full, arc)
                 names.append(arc)
     return names
