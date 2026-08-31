@@ -6,6 +6,7 @@ import { reconcileStaleExecutions } from './reconcile';
 import { retryFailedTrainingJobs } from './retry';
 import { promoteBlockedTrainingJobs } from './promote';
 import { markStaleWorkersOffline } from './workers';
+import { dispatchPeriodicReindexes } from './reindex';
 
 const { db, pool } = createDb({
   host: config.postgres.host,
@@ -67,6 +68,16 @@ async function runStages(): Promise<void> {
       }
     } catch (err) {
       logger.error('stage markStaleWorkersOffline failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    try {
+      const reindexed = await dispatchPeriodicReindexes(db, config.datasetReindexIntervalS);
+      if (reindexed > 0) {
+        logger.info('periodic directory reindexes dispatched', { count: reindexed });
+      }
+    } catch (err) {
+      logger.error('stage dispatchPeriodicReindexes failed', {
         error: err instanceof Error ? err.message : String(err),
       });
     }

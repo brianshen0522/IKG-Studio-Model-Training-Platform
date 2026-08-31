@@ -353,7 +353,7 @@ export function SourceDatasetsPage() {
                     </div>
                     {f.missing_on_disk ? (
                       <div className="folder-sub folder-sub-warn" title={f.path}>
-                        ⚠ folder not found on disk — open it to archive
+                        ⚠ folder not found on disk — the next rescan archives it (or removes it if unused)
                       </div>
                     ) : (
                       <div className="folder-images">{f.image_count_on_disk.toLocaleString()} images</div>

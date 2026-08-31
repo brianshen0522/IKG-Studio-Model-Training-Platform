@@ -167,6 +167,9 @@ services:
       EXECUTION_STALE_TIMEOUT_S: ${EXECUTION_STALE_TIMEOUT_S:-600}
       MAX_TRAINING_ATTEMPTS: ${MAX_TRAINING_ATTEMPTS:-3}
       RETRY_BACKOFF_BASE_S: ${RETRY_BACKOFF_BASE_S:-20}
+      # Periodic dataset-folder reindex; drives auto-archive/removal of source
+      # datasets whose folder was deleted from disk. 0 disables.
+      DATASET_REINDEX_INTERVAL_S: ${DATASET_REINDEX_INTERVAL_S:-3600}
     depends_on:
       postgres: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }

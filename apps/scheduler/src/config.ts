@@ -9,6 +9,10 @@ export interface Config {
   tickIntervalMs: number;
   executionStaleTimeoutS: number;
   workerOfflineTimeoutS: number;
+  // How often each dataset type's directory index is refreshed in the background
+  // (seconds). Drives the auto-archive/purge of source datasets whose folder was
+  // removed from disk. 0 disables periodic reindexing.
+  datasetReindexIntervalS: number;
   retry: {
     // Max total attempts for a training job before a lost execution gives up and the job FAILs.
     maxTrainingAttempts: number;
@@ -35,6 +39,7 @@ export const config: Config = {
   tickIntervalMs: num(process.env.SCHEDULER_TICK_INTERVAL_MS, 3000),
   executionStaleTimeoutS: num(process.env.EXECUTION_STALE_TIMEOUT_S, 600),
   workerOfflineTimeoutS: num(process.env.WORKER_OFFLINE_TIMEOUT_S, 90),
+  datasetReindexIntervalS: num(process.env.DATASET_REINDEX_INTERVAL_S, 3600),
   retry: {
     maxTrainingAttempts: num(process.env.MAX_TRAINING_ATTEMPTS, 3),
     backoffBaseS: num(process.env.RETRY_BACKOFF_BASE_S, 20),
