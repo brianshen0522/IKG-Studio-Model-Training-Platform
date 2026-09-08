@@ -1,4 +1,5 @@
 import hashlib
+import math
 import os
 
 from PIL import Image
@@ -16,6 +17,40 @@ FIELD_COUNT = {"DETECT": 5, "OBB": 9}
 # time (see builder._write_label) — that's annotation noise, a WARNING. A box
 # beyond this tolerance is garbage data and fails the label.
 COORD_TOLERANCE = 0.1
+# Smallest area four OBB corners may enclose. An OBB whose corners are coincident or
+# collinear encloses none, and Ultralytics turns that into a target of width or height
+# zero (`xyxyxyxy2xywhr` runs cv2.minAreaRect over the corners) whose ProbIoU gradient
+# is NaN. Ultralytics then spends three epochs trying to recover from last.pt before
+# failing the run with a message that names neither the file nor the label, so this has
+# to be caught here.
+#
+# Measured against the loss: the gradient is NaN for a side of 1e-12 and finite from
+# 1e-9 up, so the failure is "zero within float32", not "small". The threshold is set
+# against the *triangle* area below (half a box's area) and is deliberately some way
+# above that cliff, because an untrusted folder can carry a not-quite-zero corner that
+# lands in it. What it costs: a box must span roughly a tenth of a pixel on a
+# 4000-pixel image to pass — one whole pixel there clears this by ~300x — so nothing a
+# person or a model could mean to annotate is refused.
+MIN_OBB_AREA = 1e-10
+
+
+def _obb_encloses_no_area(coords: list) -> bool:
+    """True when four OBB corners are coincident or collinear.
+
+    Measured by the largest triangle any three of them span, which is independent of
+    the order the corners are written in — the shoelace area of the quadrilateral is
+    not, and reads near zero for a self-intersecting "bowtie" whose corners do span a
+    real box (cv2.minAreaRect recovers a normal rectangle from those, so they are
+    valid and must not be refused here).
+    """
+    pts = [(coords[i], coords[i + 1]) for i in range(0, 8, 2)]
+    largest = 0.0
+    for i in range(len(pts)):
+        for j in range(i + 1, len(pts)):
+            for k in range(j + 1, len(pts)):
+                (ax, ay), (bx, by), (cx, cy) = pts[i], pts[j], pts[k]
+                largest = max(largest, abs((bx - ax) * (cy - ay) - (by - ay) * (cx - ax)) / 2)
+    return largest <= MIN_OBB_AREA
 
 
 def _is_hidden(name: str) -> bool:
@@ -134,9 +169,17 @@ def _validate_label(path: str, rel: str, task_type: str, res: ScanResult) -> tup
             except ValueError:
                 coords_ok = False
                 break
+            # `float()` accepts "nan" and "inf". NaN then slips past every check below,
+            # because `nan < x` and `nan > x` are both False — the range test is a no-op
+            # against it, and Ultralytics silently drops the whole image/label pair as
+            # corrupt while this scan still reports the dataset READY with the image
+            # counted. Refuse both here, where the file can still be named.
+            if not math.isfinite(v):
+                coords_ok = False
+                break
             coords.append(v)
         if not coords_ok:
-            res.issue("ERROR", "DATASET_LABEL_INVALID", label=rel, line=lineno, raw=line[:200], reason="non-numeric coordinate")
+            res.issue("ERROR", "DATASET_LABEL_INVALID", label=rel, line=lineno, raw=line[:200], reason="non-numeric or non-finite coordinate")
             valid = False
             continue
         if len(parts) == expected + 1:
@@ -149,7 +192,7 @@ def _validate_label(path: str, rel: str, task_type: str, res: ScanResult) -> tup
                           reason="non-numeric confidence")
                 valid = False
                 continue
-            if conf < 0.0 or conf > 1.0:
+            if not math.isfinite(conf) or conf < 0.0 or conf > 1.0:
                 res.issue("ERROR", "DATASET_LABEL_INVALID", label=rel, line=lineno, raw=line[:200],
                           reason="confidence must be within 0..1")
                 valid = False
@@ -165,6 +208,11 @@ def _validate_label(path: str, rel: str, task_type: str, res: ScanResult) -> tup
             res.issue("WARNING", "DATASET_LABEL_COORDINATE_OUT_OF_RANGE", label=rel, line=lineno, raw=line[:200])
         if task_type == "DETECT" and (coords[2] <= 0 or coords[3] <= 0):
             res.issue("ERROR", "DATASET_LABEL_INVALID", label=rel, line=lineno, raw=line[:200], reason="width/height must be > 0")
+            valid = False
+            continue
+        if task_type == "OBB" and _obb_encloses_no_area(coords):
+            res.issue("ERROR", "DATASET_LABEL_INVALID", label=rel, line=lineno, raw=line[:200],
+                      reason="the four corners enclose no area (coincident or collinear)")
             valid = False
             continue
         class_ids.append(cid)
