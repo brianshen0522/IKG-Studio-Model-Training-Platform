@@ -7,6 +7,7 @@ the Model Root via staging + atomic rename and registers an AVAILABLE model.
 import hashlib
 import ipaddress
 import os
+import pickletools
 import re
 import shutil
 import socket
@@ -22,6 +23,69 @@ MAX_DOWNLOAD_BYTES = 5 * 1024 * 1024 * 1024   # 5 GiB hard ceiling
 MAX_REDIRECTS = 5
 DOWNLOAD_TIMEOUT_S = 300
 _METADATA_IPS = {"169.254.169.254"}
+# Ultralytics writes the task into the checkpoint; map it onto our own enum.
+_TASK_FROM_ULTRALYTICS = {
+    "detect": "DETECT", "obb": "OBB", "segment": "SEGMENT",
+    "pose": "POSE", "classify": "CLASSIFY",
+}
+# The metadata pickle inside a .pt is small (the weights live in separate zip
+# entries); anything larger is not the file we think it is, so don't read it.
+MAX_PICKLE_BYTES = 32 * 1024 * 1024
+_PICKLE_STR_OPS = frozenset({
+    "SHORT_BINUNICODE", "BINUNICODE", "BINUNICODE8", "UNICODE",
+    "SHORT_BINSTRING", "BINSTRING", "STRING",
+})
+
+
+def _task_from_pickle(raw: bytes) -> str | None:
+    """The Ultralytics task recorded in a checkpoint's pickle, or None if unreadable.
+
+    This worker has no torch (see the module docstring), so the checkpoint cannot be
+    loaded — but the task is a plain string in the pickle stream, and `pickletools`
+    walks that stream as *data*: it disassembles opcodes and never constructs an
+    object or calls into a module, so an untrusted upload cannot execute anything
+    here. That is a stronger guarantee than the `torch.load(weights_only=False)` the
+    scanner uses, not a weaker one.
+
+    Returns None on anything ambiguous — a file that names two different tasks, or
+    one this cannot parse. The caller must treat None as "no opinion" and let the
+    ingest through, because a heuristic that cannot read the file has no business
+    blocking it.
+    """
+    found: set[str] = set()
+    memo: dict = {}
+    last = None   # the most recent value pushed onto the stack, for memo writes
+    prev = None   # the previous *string*, so `task` can be paired with its value
+    try:
+        for op, arg, _pos in pickletools.genops(raw):
+            name = op.name
+            if name in _PICKLE_STR_OPS:
+                value = arg.decode("utf-8", "replace") if isinstance(arg, (bytes, bytearray)) else str(arg)
+            elif name in ("BINGET", "LONG_BINGET", "GET"):
+                # A repeated string is emitted once and referenced afterwards, so the
+                # value beside a `task` key is often a memo reference, not a literal.
+                value = memo.get(arg)
+                if value is None:
+                    continue
+            elif name == "MEMOIZE":
+                if last is not None:
+                    memo[len(memo)] = last
+                continue
+            elif name in ("BINPUT", "LONG_BINPUT", "PUT"):
+                if last is not None:
+                    memo[arg] = last
+                continue
+            else:
+                # Every other opcode is left alone on purpose: `prev` must survive the
+                # opcodes that sit between a dict key and its value.
+                continue
+            if prev == "task" and value in _TASK_FROM_ULTRALYTICS:
+                found.add(_TASK_FROM_ULTRALYTICS[value])
+            last = value
+            prev = value
+    except Exception:  # noqa: BLE001 - a truncated or exotic pickle is "no opinion"
+        return None
+    return found.pop() if len(found) == 1 else None
 
 
 class IngestError(Exception):
@@ -109,9 +173,20 @@ def _validate_file(path: str, min_size: int, expected_checksum: str | None) -> d
         try:
             with zipfile.ZipFile(path) as zf:
                 names = zf.namelist()
+                pickles = [n for n in names if n.endswith("data.pkl")]
+                task = None
+                for entry in pickles:
+                    if zf.getinfo(entry).file_size > MAX_PICKLE_BYTES:
+                        continue
+                    task = _task_from_pickle(zf.read(entry))
+                    if task:
+                        break
             arch["archive"] = "zip"
             arch["entry_count"] = len(names)
             arch["is_torch_archive"] = any(n.endswith("data.pkl") or "/data/" in n or n.endswith("/version") for n in names)
+            # None when the checkpoint says nothing readable; the caller must not
+            # treat that as a disagreement.
+            arch["task"] = task
         except zipfile.BadZipFile:
             raise IngestError("MODEL_INVALID_FILE", "declared zip archive is corrupt")
     elif head[:1] == b"\x80":
@@ -159,6 +234,7 @@ class ModelIngestWorker:
                 joblog.progress(self.cfg.pg_conninfo(), job_execution_id, 10, "Fetching model file")
                 self._fetch(ctx, tmp_file)
                 info = _validate_file(tmp_file, ctx["min_size"], ctx["expected_checksum"])
+                self._assert_task_matches(ctx, info, job_execution_id)
                 joblog.progress(self.cfg.pg_conninfo(), job_execution_id, 60,
                                 f"Downloaded {info['size']} bytes, checksum verified")
                 self._publish_and_register(ctx, task_id, job_execution_id, correlation_id, tmp_file, info)
@@ -171,6 +247,33 @@ class ModelIngestWorker:
                 self._fail(ctx, task_id, job_execution_id, correlation_id, "MODEL_INGEST_FAILED", str(e)[:500])
             finally:
                 self._cleanup_temp_object(ctx)
+
+    def _assert_task_matches(self, ctx: dict, info: dict, job_execution_id: str) -> None:
+        """Refuse a file whose own checkpoint disagrees with the declared task type.
+
+        Nothing else checks this: the task type is picked by hand in the upload form
+        and then trusted all the way to `TRAINING_TASK_TYPE_MISMATCH`, which compares
+        the declared value against the dataset and so waves through a detect weight
+        labelled OBB. The disagreement only surfaces once Ultralytics has claimed a
+        worker and started the run.
+
+        Only a confident disagreement fails. `task` is None whenever the checkpoint
+        could not be read, and an unreadable file is not evidence of anything.
+        """
+        detected = (info.get("architecture") or {}).get("task")
+        declared = ctx["task_type"]
+        if not detected:
+            log.info("checkpoint task not readable, keeping the declared value",
+                     model_ingest_task_id=ctx.get("name"), declared=declared)
+            return
+        if detected != declared:
+            raise IngestError(
+                "MODEL_TASK_TYPE_MISMATCH",
+                f"the checkpoint reports task {detected}, but this model was registered as "
+                f"{declared}. Re-register it as {detected}, or upload the {declared} weights.",
+            )
+        joblog.progress(self.cfg.pg_conninfo(), job_execution_id, 50,
+                        f"Checkpoint task {detected} matches the declared type")
 
     def _load(self, task_id: str) -> dict:
         with self.conn.cursor() as cur:
