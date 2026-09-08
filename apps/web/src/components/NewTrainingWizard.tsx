@@ -72,8 +72,10 @@ const SIZE_V10 = [
  * Ultralytics generations this platform can train against official weights for.
  * Excluded on purpose: v3/v4/v6/v7 aren't unified-trainer citizens (v3/v5 use
  * non-standard filenames, v4/v7 aren't Ultralytics repos, v6 has no published .pt).
- * `obb`: whether Ultralytics publishes `*-obb.pt` for this generation — v9 and v10
- * only ship detection weights, so an OBB dataset can't start from them.
+ * `obb`: whether Ultralytics publishes `*-obb.pt` for this generation — v9, v10 and
+ * v12 only ship detection weights, so an OBB dataset can't start from them. Checked
+ * against GITHUB_ASSETS_NAMES in ultralytics/utils/downloads.py, which marks the
+ * yolo12 line "detect models only currently".
  * `keepV`: whether the weight filename keeps the "v" (yolov8n.pt vs yolo11n.pt).
  */
 const YOLO_VERSIONS = [
@@ -81,9 +83,12 @@ const YOLO_VERSIONS = [
   { id: 'v9', label: 'YOLOv9', note: 'PGI + GELAN', keepV: true, sizes: SIZE_V9, obb: false },
   { id: 'v10', label: 'YOLOv10', note: 'NMS-free, fastest inference', keepV: true, sizes: SIZE_V10, obb: false },
   { id: 'v11', label: 'YOLO11', note: 'better accuracy per FLOP', keepV: false, sizes: SIZE_STD, obb: true },
-  { id: 'v12', label: 'YOLO12', note: 'attention-centric, community-maintained', keepV: false, sizes: SIZE_STD, obb: true },
+  { id: 'v12', label: 'YOLO12', note: 'attention-centric, community-maintained', keepV: false, sizes: SIZE_STD, obb: false },
   { id: 'v26', label: 'YOLO26', note: 'newest, NMS-free end-to-end', keepV: false, sizes: SIZE_STD, obb: true },
 ] as const;
+
+/** The generations the OBB guard actually accepts, named the way the picker names them. */
+const obbVersionLabels = YOLO_VERSIONS.filter((v) => v.obb).map((v) => v.label).join(', ');
 
 const TASK_SUFFIX: Record<string, string> = {
   OBB: '-obb', DETECT: '', POSE: '-pose', SEGMENT: '-seg', CLASSIFY: '-cls',
@@ -375,7 +380,7 @@ export function NewTrainingWizard({ onClose }: { onClose: () => void }) {
   const readyDatasets = datasetsData?.filter((d) => d.status === 'READY') ?? [];
   const selDataset = readyDatasets.find((d) => d.id === s.datasetId);
   const selectedYoloVersion = YOLO_VERSIONS.find((v) => v.id === s.yoloVersion) ?? YOLO_VERSIONS[0];
-  // v9/v10 only ship detection weights — an OBB dataset can't start from them.
+  // v9/v10/v12 only ship detection weights — an OBB dataset can't start from them.
   const obbUnsupported = s.modelSource === 'OFFICIAL' && selDataset?.task_type === 'OBB' && !selectedYoloVersion.obb;
 
   const { data: modelsData } = useQuery({
@@ -690,7 +695,7 @@ export function NewTrainingWizard({ onClose }: { onClose: () => void }) {
               {obbUnsupported && (
                 <div className="error-banner">
                   {selectedYoloVersion.label} has no official OBB weights. Go back to Model and pick a version
-                  that supports OBB (v8, v11, v12, or v26).
+                  that supports OBB ({obbVersionLabels}).
                 </div>
               )}
               <label className="field">
