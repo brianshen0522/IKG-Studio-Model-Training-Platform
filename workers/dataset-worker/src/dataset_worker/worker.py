@@ -438,7 +438,7 @@ class DatasetWorker:
         if train_count + val_count + test_count == 0:
             raise ScanError("TRAINING_DATASET_NO_IMAGES", "no images found in splits")
 
-        self._assert_label_geometry(os.path.dirname(data_yaml_path), task_type)
+        self._assert_labels_valid(os.path.dirname(data_yaml_path), task_type, len(names))
 
         return {
             "classes_hash": classes_hash,
@@ -449,20 +449,39 @@ class DatasetWorker:
             "status": "READY",
         }
 
-    def _assert_label_geometry(self, root: str, task_type: str) -> None:
-        """A registered directory declares its task type at creation; nothing on disk
-        forces the two to agree. Sample a label file and compare field counts so a
-        DETECT/OBB mix-up fails here rather than deep inside Ultralytics.
+    # A registered directory is validated once and then handed to Ultralytics as-is,
+    # so every row of every label file is read here. Sampling one row used to be enough
+    # to catch a DETECT/OBB mix-up, but not a bad row further down a file that nothing
+    # downstream rewrites or re-checks.
+    MAX_REPORTED_LABEL_PROBLEMS = 5
 
-        DETECT rows are `cls cx cy w h` (5 fields); OBB rows are `cls x1 y1 ... x4 y4` (9).
+    def _assert_labels_valid(self, root: str, task_type: str, class_count: int) -> None:
+        """Validate every label row in a registered YOLO directory.
 
-        Unlike a BUILT dataset, nothing here is rewritten — the directory is handed to
-        Ultralytics as-is — so the optional trailing confidence column that the scanner
-        tolerates on source datasets is rejected here: Ultralytics would fail on it.
+        A BUILT dataset gets this from `scanner._validate_label` on its source folders;
+        a registered one is only ever looked at here, so it runs the same validator
+        rather than a weaker copy of it — coordinates, class ids, non-finite values and
+        degenerate OBB corners all included.
+
+        Two rules are stricter than the source-dataset scan, because nothing rewrites
+        this directory on the way to training:
+
+        * the optional trailing confidence column is refused (the build strips it for
+          BUILT datasets; here Ultralytics would choke on it), and
+        * a class id at or beyond the class count in data.yaml is refused, matching the
+          `DATASET_CLASS_INDEX_GAP` error the source scan raises.
         """
         expected = {"DETECT": 5, "OBB": 9}.get(task_type)
         if expected is None:
             return
+
+        res = scanner.ScanResult()
+        # (failure_code, message). The code comes from the first problem found, so a
+        # wrong field count still reports as a task-type mismatch while a bad
+        # coordinate or class id reports as what it is.
+        problems: list[tuple[str, str]] = []
+        checked_files = 0
+        checked_rows = 0
 
         for split in ("train", "val", "test"):
             labels_dir = os.path.join(root, "labels", split)
@@ -474,28 +493,78 @@ class DatasetWorker:
                 full = os.path.join(labels_dir, entry)
                 if not os.path.isfile(full) or os.path.islink(full):
                     continue
+                rel = f"labels/{split}/{entry}"
+                checked_files += 1
+                wrong_field_count = False
+
+                # Field count first: `_validate_label` tolerates a trailing confidence
+                # column that this directory may not carry, so it cannot speak for it.
                 try:
                     with open(full, "r") as f:
-                        for line in f:
+                        for lineno, line in enumerate(f, start=1):
                             fields = line.split()
                             if not fields:
                                 continue  # blank line — a legitimately empty label row
-                            if len(fields) != expected:
-                                extra = (
-                                    " — this looks like prediction output with a trailing "
-                                    "confidence column; re-export the labels without it, or "
-                                    "register the source dataset and build instead (the build "
-                                    "strips confidence)"
-                                    if len(fields) == expected + 1 else ""
-                                )
-                                raise ScanError(
-                                    "TRAINING_DATASET_TASK_TYPE_MISMATCH",
-                                    f"{task_type} expects {expected} fields per label row, "
-                                    f"found {len(fields)} in labels/{split}/{entry}{extra}",
-                                )
-                            return  # one well-formed row is enough to confirm the geometry
+                            checked_rows += 1
+                            if len(fields) == expected:
+                                continue
+                            hint = (
+                                " — this looks like prediction output with a trailing "
+                                "confidence column; re-export the labels without it, or "
+                                "register the source dataset and build instead (the build "
+                                "strips confidence)"
+                                if len(fields) == expected + 1 else ""
+                            )
+                            wrong_field_count = True
+                            problems.append((
+                                "TRAINING_DATASET_TASK_TYPE_MISMATCH",
+                                f"{rel}:{lineno} expects {expected} fields per row, "
+                                f"found {len(fields)}{hint}",
+                            ))
+                            if len(problems) >= self.MAX_REPORTED_LABEL_PROBLEMS:
+                                break
                 except OSError as e:
                     raise ScanError("TRAINING_DATASET_LABEL_UNREADABLE", str(e)[:200])
+
+                if len(problems) >= self.MAX_REPORTED_LABEL_PROBLEMS:
+                    break
+                if wrong_field_count:
+                    # `_validate_label` rejects the same rows for the same reason; running
+                    # it here would report each of them twice.
+                    continue
+
+                before = len(res.issues)
+                _, class_ids = scanner._validate_label(full, rel, task_type, res)
+                for issue in res.issues[before:]:
+                    if issue["severity"] != "ERROR":
+                        continue
+                    reason = (issue.get("details") or {}).get("reason") or issue["issue_code"]
+                    line_no = issue.get("line_number")
+                    where = f"{rel}:{line_no}" if line_no else rel
+                    problems.append(("TRAINING_DATASET_LABEL_INVALID", f"{where} {reason}"))
+                for cid in class_ids:
+                    if class_count and cid >= class_count:
+                        problems.append((
+                            "TRAINING_DATASET_CLASS_INDEX_INVALID",
+                            f"{rel} uses class id {cid}, but data.yaml declares only "
+                            f"{class_count} class(es) (0-{class_count - 1})",
+                        ))
+                        break
+                if len(problems) >= self.MAX_REPORTED_LABEL_PROBLEMS:
+                    break
+            if len(problems) >= self.MAX_REPORTED_LABEL_PROBLEMS:
+                break
+
+        if problems:
+            shown = problems[:self.MAX_REPORTED_LABEL_PROBLEMS]
+            more = "" if len(problems) <= len(shown) else " (and more not listed)"
+            raise ScanError(
+                problems[0][0],
+                f"{task_type} label validation failed: "
+                + "; ".join(m for _, m in shown) + more,
+            )
+        log.info("registered dataset labels validated",
+                 files=checked_files, rows=checked_rows, task_type=task_type)
 
     def _complete_training_dataset(self, conn, training_dataset_id, job_execution_id, correlation_id, name, created_by, res):
         with conn.cursor() as cur:
