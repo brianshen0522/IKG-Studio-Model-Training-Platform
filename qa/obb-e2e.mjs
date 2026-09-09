@@ -43,12 +43,21 @@ async function main() {
   ok('logged in');
 
   const stamp = Date.now().toString(36);
-  const dt = await api('POST', '/admin/dataset-types', {
-    name: `obb-e2e-${stamp}`, dataset_path: SRC, model_path: MODELS, training_dataset_path: TD,
-  });
-  if (!dt.body?.id) throw new Error(`dataset type create failed: ${dt.status} ${JSON.stringify(dt.error)}`);
-  const typeId = dt.body.id;
-  ok(`dataset type created (${typeId.slice(0, 8)})`);
+  // Model roots may not overlap, and every suite here wants the same one — so a run
+  // after any other on the same database cannot create its own type, it has to take
+  // the one already holding /data/models.
+  let types = (await api('GET', '/admin/dataset-types')).body;
+  types = Array.isArray(types) ? types : (types?.items ?? []);
+  let typeId = types.find((t) => t.model_path === MODELS)?.id;
+  if (typeId) ok(`reusing dataset type (${typeId.slice(0, 8)})`);
+  else {
+    const dt = await api('POST', '/admin/dataset-types', {
+      name: `obb-e2e-${stamp}`, dataset_path: SRC, model_path: MODELS, training_dataset_path: TD,
+    });
+    if (!dt.body?.id) throw new Error(`dataset type create failed: ${dt.status} ${JSON.stringify(dt.error)}`);
+    typeId = dt.body.id;
+    ok(`dataset type created (${typeId.slice(0, 8)})`);
+  }
 
   // ---- source dataset scans -------------------------------------------------
   async function scanSource(subPath, name) {
