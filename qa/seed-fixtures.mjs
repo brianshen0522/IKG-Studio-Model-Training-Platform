@@ -117,7 +117,7 @@ function writeDataset(dir, kind) {
 }
 
 /** A prepared YOLO directory, which a registered training dataset points straight at. */
-function writeRegistered(dir, poisonRow) {
+function writeRegistered(dir, poisonRow, kind = 'obb') {
   for (const split of ['train', 'val']) {
     mkdirSync(join(dir, 'images', split), { recursive: true });
     mkdirSync(join(dir, 'labels', split), { recursive: true });
@@ -126,7 +126,7 @@ function writeRegistered(dir, poisonRow) {
     const stem = `img_${String(i).padStart(3, '0')}`;
     const split = i <= 3 ? 'train' : 'val';
     writeFileSync(join(dir, 'images', split, `${stem}.png`), png(160, 120, [30, 60, 100 + i * 6]));
-    let rows = labelsFor('obb', i);
+    let rows = labelsFor(kind, i);
     // Deep inside the second file, so a scan that samples one row cannot find it.
     if (poisonRow && i === 2) rows += poisonRow + '\n';
     writeFileSync(join(dir, 'labels', split, `${stem}.txt`), rows);
@@ -152,11 +152,14 @@ const SOURCES = {
 for (const [name, kind] of Object.entries(SOURCES)) {
   writeDataset(join(ROOT, 'source-datasets', name), kind);
 }
-writeRegistered(join(ROOT, 'training-datasets', 'registered-ok'), null);
-writeRegistered(join(ROOT, 'training-datasets', 'registered-bad'), '0 0.5 0.5 0.2 0.2');
+writeRegistered(join(ROOT, 'training-datasets', 'registered-ok'), null, 'obb');
+writeRegistered(join(ROOT, 'training-datasets', 'registered-bad'), '0 0.5 0.5 0.2 0.2', 'obb');
+// The registered path was only ever exercised with OBB, but it validates DETECT by
+// the same rules and with a different field count.
+writeRegistered(join(ROOT, 'training-datasets', 'registered-detect'), null, 'detect');
 // The workers write into these; they must exist and be writable before a run.
 for (const d of ['models', 'training-datasets/datasets']) mkdirSync(join(ROOT, d), { recursive: true });
 
 console.log(`wrote ${ROOT}`);
 console.log(`  source datasets    : ${Object.keys(SOURCES).join(', ')}`);
-console.log('  training datasets  : registered-ok, registered-bad');
+console.log('  training datasets  : registered-ok, registered-bad, registered-detect');
