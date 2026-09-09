@@ -162,3 +162,12 @@ export {
   buildYoloCommand,
 } from './yolo-args';
 export type { YoloArgSpec, YoloArgIssue } from './yolo-args';
+
+export {
+  YOLO_GENERATIONS,
+  YOLO_TASK_SUFFIX,
+  findYoloGeneration,
+  officialWeightName,
+  officialWeightsProblem,
+} from './yolo-weights';
+export type { YoloGeneration, YoloTask } from './yolo-weights';

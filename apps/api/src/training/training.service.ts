@@ -2,7 +2,7 @@ import { Inject, Injectable, HttpException } from '@nestjs/common';
 import { DB_PROVIDER } from '../database/database.module';
 import { type Kysely, type Transaction, sql } from 'kysely';
 import type { Database } from '@model-trainer/db';
-import { errorCode, validateYoloArgs } from '@model-trainer/shared-types';
+import { errorCode, officialWeightsProblem, validateYoloArgs } from '@model-trainer/shared-types';
 import { AuditService } from '../audit/audit.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { TrainingStateMachine } from './training-state-machine';
@@ -39,6 +39,30 @@ const FIELDS = [
 
 /** Recorded by the wizard to rebuild its own state; not Ultralytics arguments. */
 const WIZARD_ONLY_HP = new Set(['yolo_version', 'yolo_size', 'model']);
+
+/**
+ * Refuse a job whose official base weights do not exist.
+ *
+ * Only the wizard's own record of the generation and scale says which weight file the
+ * worker will build, and nothing checked it — so a combination Ultralytics never
+ * published (YOLO12 with OBB, say) was accepted, queued, given a worker, and only
+ * then failed at PREPARATION on a download error naming a file rather than a choice.
+ * A registered base model is exempt: it is a real file, and its task is already
+ * compared against the dataset above.
+ */
+function assertOfficialWeightsExist(
+  hp: Record<string, unknown>,
+  taskType: string,
+  hasBaseModel: boolean,
+): void {
+  if (hasBaseModel) return;
+  const problem = officialWeightsProblem(
+    hp.yolo_version as string | undefined,
+    hp.yolo_size as string | undefined,
+    taskType as Parameters<typeof officialWeightsProblem>[2],
+  );
+  if (problem) throw err(errorCode.TRAINING_INVALID_HYPERPARAMETERS, problem, 400);
+}
 
 function normalizeHyperparameters(hp: Record<string, unknown> | undefined): Record<string, unknown> {
   const out: Record<string, unknown> = { epochs: 100, imgsz: 640, batch: 16, ...(hp ?? {}) };
@@ -100,6 +124,7 @@ export class TrainingService {
         if (bm.status !== 'AVAILABLE') throw err(errorCode.TRAINING_BASE_MODEL_NOT_AVAILABLE, 'base model is not AVAILABLE', 409);
         if (bm.task_type !== ds.task_type) throw err(errorCode.TRAINING_TASK_TYPE_MISMATCH, 'base model task type does not match dataset task type', 400);
       }
+      assertOfficialWeightsExist(hp, ds.task_type, !!baseModelId);
 
       await assertJobNameAvailable(trx, ds.dataset_type_id, name);
 
@@ -150,6 +175,7 @@ export class TrainingService {
         if (bm.status !== 'AVAILABLE') throw err(errorCode.TRAINING_BASE_MODEL_NOT_AVAILABLE, 'base model is not AVAILABLE', 409);
         if (bm.task_type !== ds.task_type) throw err(errorCode.TRAINING_TASK_TYPE_MISMATCH, 'base model task type does not match dataset task type', 400);
       }
+      assertOfficialWeightsExist(src.hyperparameters as Record<string, unknown>, ds.task_type, !!src.base_model_id);
 
       const cloneName = `${src.name} (clone)`.slice(0, 150);
       await assertJobNameAvailable(trx, ds.dataset_type_id, cloneName);
@@ -281,6 +307,7 @@ export class TrainingService {
         if (bm.status !== 'AVAILABLE') throw err(errorCode.TRAINING_BASE_MODEL_NOT_AVAILABLE, 'base model is not AVAILABLE', 409);
         if (bm.task_type !== ds.task_type) throw err(errorCode.TRAINING_TASK_TYPE_MISMATCH, 'base model task type does not match dataset task type', 400);
       }
+      assertOfficialWeightsExist(job.hyperparameters as Record<string, unknown>, ds.task_type, !!job.base_model_id);
 
       const resetFields = {
         finished_at: null, cancelled_at: null, cancelled_by_user_id: null,

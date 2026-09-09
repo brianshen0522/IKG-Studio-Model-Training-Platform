@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, Children } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiGetList, apiGetAll, apiSend, apiGet } from '../lib/api';
 import { queryClient } from '../lib/queryClient';
+import { YOLO_GENERATIONS, officialWeightName } from '@model-trainer/shared-types';
+import type { YoloTask } from '@model-trainer/shared-types';
 import { useAuthStore } from '../stores/auth';
 import { formatBytes, toParsableIso } from '../lib/format';
 import { PrereqNotice } from './PrereqNotice';
@@ -41,65 +43,44 @@ interface ModelItem {
 
 const STEPS = ['Dataset Type', 'Model', 'Training Dataset', 'Hyperparameters', 'Review & CLI'];
 
-const SIZE_STD = [
-  { id: 'n', label: 'n', note: 'nano — fastest' },
-  { id: 's', label: 's', note: 'small' },
-  { id: 'm', label: 'm', note: 'medium' },
-  { id: 'l', label: 'l', note: 'large' },
-  { id: 'x', label: 'x', note: 'extra — most accurate' },
-] as const;
-
-// v9 scales aren't n/s/m/l/x — Ultralytics ships t/s/m/c/e for this generation only.
-const SIZE_V9 = [
-  { id: 't', label: 't', note: 'tiny — fastest' },
-  { id: 's', label: 's', note: 'small' },
-  { id: 'm', label: 'm', note: 'medium' },
-  { id: 'c', label: 'c', note: 'compact' },
-  { id: 'e', label: 'e', note: 'extra — most accurate' },
-] as const;
-
-// v10 adds a "b" (balanced) scale between m and l that no other generation has.
-const SIZE_V10 = [
-  { id: 'n', label: 'n', note: 'nano — fastest' },
-  { id: 's', label: 's', note: 'small' },
-  { id: 'm', label: 'm', note: 'medium' },
-  { id: 'b', label: 'b', note: 'balanced — wider' },
-  { id: 'l', label: 'l', note: 'large' },
-  { id: 'x', label: 'x', note: 'extra — most accurate' },
-] as const;
-
 /**
- * Ultralytics generations this platform can train against official weights for.
- * Excluded on purpose: v3/v4/v6/v7 aren't unified-trainer citizens (v3/v5 use
- * non-standard filenames, v4/v7 aren't Ultralytics repos, v6 has no published .pt).
- * `obb`: whether Ultralytics publishes `*-obb.pt` for this generation — v9, v10 and
- * v12 only ship detection weights, so an OBB dataset can't start from them. Checked
- * against GITHUB_ASSETS_NAMES in ultralytics/utils/downloads.py, which marks the
- * yolo12 line "detect models only currently".
- * `keepV`: whether the weight filename keeps the "v" (yolov8n.pt vs yolo11n.pt).
+ * The picker's own view of the generations: which are offered, in what order, and
+ * the one-liner beside each. Which weights actually exist — the scales published and
+ * the tasks covered — comes from YOLO_GENERATIONS in shared-types, so the wizard and
+ * the API cannot disagree about it. They did: this listed YOLO12 as having OBB
+ * weights, nothing server-side knew otherwise, and the job failed on the worker.
  */
-const YOLO_VERSIONS = [
-  { id: 'v8', label: 'YOLOv8', note: 'mature, widest ecosystem', keepV: true, sizes: SIZE_STD, obb: true },
-  { id: 'v9', label: 'YOLOv9', note: 'PGI + GELAN', keepV: true, sizes: SIZE_V9, obb: false },
-  { id: 'v10', label: 'YOLOv10', note: 'NMS-free, fastest inference', keepV: true, sizes: SIZE_V10, obb: false },
-  { id: 'v11', label: 'YOLO11', note: 'better accuracy per FLOP', keepV: false, sizes: SIZE_STD, obb: true },
-  { id: 'v12', label: 'YOLO12', note: 'attention-centric, community-maintained', keepV: false, sizes: SIZE_STD, obb: false },
-  { id: 'v26', label: 'YOLO26', note: 'newest, NMS-free end-to-end', keepV: false, sizes: SIZE_STD, obb: true },
-] as const;
+const VERSION_NOTES: Record<string, string> = {
+  v8: 'mature, widest ecosystem',
+  v9: 'PGI + GELAN',
+  v10: 'NMS-free, fastest inference',
+  v11: 'better accuracy per FLOP',
+  v12: 'attention-centric, community-maintained',
+  v26: 'newest, NMS-free end-to-end',
+};
+
+const SIZE_NOTES: Record<string, string> = {
+  n: 'nano — fastest', t: 'tiny — fastest', s: 'small', m: 'medium',
+  b: 'balanced — wider', c: 'compact', l: 'large', x: 'extra — most accurate',
+  e: 'extra — most accurate',
+};
+
+interface VersionChoice {
+  id: string; label: string; note: string; keepV: boolean;
+  sizes: { id: string; label: string; note: string }[]; obb: boolean;
+}
+
+const YOLO_VERSIONS: VersionChoice[] = YOLO_GENERATIONS.map((g) => ({
+  id: g.id,
+  label: g.label,
+  note: VERSION_NOTES[g.id] ?? '',
+  keepV: g.keepV,
+  sizes: g.sizes.map((id) => ({ id, label: id, note: SIZE_NOTES[id] ?? '' })),
+  obb: g.tasks.includes('OBB'),
+}));
 
 /** The generations the OBB guard actually accepts, named the way the picker names them. */
 const obbVersionLabels = YOLO_VERSIONS.filter((v) => v.obb).map((v) => v.label).join(', ');
-
-const TASK_SUFFIX: Record<string, string> = {
-  OBB: '-obb', DETECT: '', POSE: '-pose', SEGMENT: '-seg', CLASSIFY: '-cls',
-};
-
-/** Mirrors Trainer._official_model_name on the worker; keep the two in step. */
-function officialWeightName(version: string, size: string, taskType: string): string {
-  const v = YOLO_VERSIONS.find((x) => x.id === version) ?? YOLO_VERSIONS[0];
-  const stem = v.keepV ? `yolo${v.id}${size}` : `yolo${v.id.replace(/^v/, '')}${size}`;
-  return `${stem}${TASK_SUFFIX[taskType] ?? ''}.pt`;
-}
 
 function buildYoloCli(state: WizardState, data: { datasetPath?: string; modelPath?: string }): string {
   const parts: string[] = ['yolo', 'train'];
@@ -414,7 +395,7 @@ export function NewTrainingWizard({ onClose }: { onClose: () => void }) {
       if (s.device) hp.device = s.device;
       // Record which weights the worker should start from when no registered model is used.
       if (s.modelSource === 'OFFICIAL') {
-        hp.model = officialWeightName(s.yoloVersion, s.yoloSize, selDataset?.task_type ?? 'DETECT');
+        hp.model = officialWeightName(s.yoloVersion, s.yoloSize, ((selDataset?.task_type ?? 'DETECT') as YoloTask));
         hp.yolo_version = s.yoloVersion;
         hp.yolo_size = s.yoloSize;
       }
@@ -455,7 +436,7 @@ export function NewTrainingWizard({ onClose }: { onClose: () => void }) {
   // The weight the job will actually start from — an official Ultralytics name, or the
   // registered model's own file. Task type comes from the selected dataset.
   const resolvedWeights = s.modelSource === 'OFFICIAL'
-    ? officialWeightName(s.yoloVersion, s.yoloSize, selDataset?.task_type ?? 'DETECT')
+    ? officialWeightName(s.yoloVersion, s.yoloSize, ((selDataset?.task_type ?? 'DETECT') as YoloTask))
     : (selModel?.name ?? '');
 
   const generatedCli = useMemo(
@@ -616,7 +597,7 @@ export function NewTrainingWizard({ onClose }: { onClose: () => void }) {
 
                   <div className="model-detail-box">
                     <div>
-                      Weights: <code>{officialWeightName(s.yoloVersion, s.yoloSize, selDataset?.task_type ?? 'DETECT')}</code>
+                      Weights: <code>{officialWeightName(s.yoloVersion, s.yoloSize, ((selDataset?.task_type ?? 'DETECT') as YoloTask))}</code>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--text-sub)', marginTop: 4 }}>
                       {selDataset
