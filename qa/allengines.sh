@@ -21,6 +21,10 @@ export QA_BUILD_SOURCES=vehicles
 for eng in $ENGINES; do
   echo "############################## $eng ##############################"
   $DC down -v >/dev/null 2>&1
+  # postgres/redis/minio are bind mounts under ../data, which `down -v` does not
+  # touch — so without this each engine ran against the previous engine's database
+  # and skipped everything it had already created, despite the comment above.
+  rm -rf "$ROOT/data/qa-postgres" "$ROOT/data/qa-redis" "$ROOT/data/qa-minio"
   $DC up -d >/dev/null 2>&1
   for i in $(seq 1 40); do st=$(docker inspect -f '{{.State.Health.Status}}' ikg-studio-model-training-platform-qa-backend-1 2>/dev/null); [ "$st" = "healthy" ] && break; sleep 2; done
   $DC exec -T postgres psql -U migration_role -d model_trainer -c "UPDATE app.system_settings SET value='true'::jsonb WHERE setting_key IN ('model_download_allow_http','model_download_allow_private');" >/dev/null 2>&1
