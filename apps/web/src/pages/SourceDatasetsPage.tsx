@@ -368,6 +368,10 @@ export function SourceDatasetsPage() {
                       <div className="folder-images">{f.image_count_on_disk.toLocaleString()} images</div>
                     )}
                     <div className="folder-meta">
+                      <span>
+                        Format: {f.task_type === 'DETECT' ? 'BBOX' : f.task_type === 'OBB' ? 'OBB' : 'Unknown'}
+                      </span>
+                      <span>·</span>
                       {f.registered ? (
                         <>
                           <span>{f.matched_pair_count ?? '—'} pairs</span>

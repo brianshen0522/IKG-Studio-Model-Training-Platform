@@ -124,6 +124,54 @@ def _walk(root: str, allow_subdirs: bool, res: ScanResult):
             yield rel, full
 
 
+def _structural_geometry(line: str) -> str | None:
+    parts = line.split()
+    if len(parts) not in (5, 6, 9, 10):
+        return None
+    try:
+        values = [float(part) for part in parts]
+    except ValueError:
+        return None
+    if not all(math.isfinite(value) for value in values):
+        return None
+    if not values[0].is_integer() or values[0] < 0:
+        return None
+    expected = 5 if len(parts) <= 6 else 9
+    if len(parts) == expected + 1 and not 0.0 <= values[expected] <= 1.0:
+        return None
+    return "DETECT" if expected == 5 else "OBB"
+
+
+def _inspect_label_geometry(labels: dict[str, str], labels_dir: str, res: ScanResult,
+                            example_limit: int = 8) -> None:
+    examples: list[dict] = []
+    counts = {"DETECT": 0, "OBB": 0}
+    for stem in sorted(labels):
+        full = labels[stem]
+        rel = os.path.relpath(full, labels_dir)
+        try:
+            with open(full, "r", encoding="utf-8") as fh:
+                lines = fh.readlines()
+        except Exception:
+            continue
+        for lineno, raw in enumerate(lines, 1):
+            line = raw.strip()
+            if not line:
+                continue
+            geometry = _structural_geometry(line)
+            if geometry is None:
+                continue
+            counts[geometry] += 1
+            if len(examples) < example_limit and not any(e["geometry"] == geometry for e in examples):
+                examples.append({"geometry": geometry, "label": rel, "line": lineno})
+    if counts["DETECT"] and counts["OBB"]:
+        first = examples[0] if examples else {}
+        res.issue("ERROR", "DATASET_MIXED_LABEL_GEOMETRY",
+                  label=first.get("label"), line=first.get("line"),
+                  reason="label files contain both BBOX (DETECT) and OBB geometry",
+                  detect_rows=counts["DETECT"], obb_rows=counts["OBB"], examples=examples)
+
+
 def _validate_label(path: str, rel: str, task_type: str, res: ScanResult) -> tuple[bool, list[int]]:
     """Return (is_valid, class_ids). Records issues + empty."""
     expected = FIELD_COUNT.get(task_type)
@@ -327,6 +375,11 @@ def scan(images_dir: str, labels_dir: str, classes_file: str | None,
         labels[stem] = full
 
     _report(40, f"Scanned {res.label_count} label files")
+
+    # Geometry is checked across every label file, before pairing. _validate_label only
+    # sees labels that matched an image, so an orphan carrying the other geometry would
+    # otherwise pass as a missing-image warning and leave the dataset READY.
+    _inspect_label_geometry(labels, labels_dir, res)
 
     # deep-validate images + pair with labels
     class_object_counts: dict[int, int] = {}

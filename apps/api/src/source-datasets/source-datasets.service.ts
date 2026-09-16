@@ -11,42 +11,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { normalizeRoot, isWithinRoot } from '../common/roots';
 import { dispatchDirectoryReindex, isReindexRunning } from './reindex';
+import { inspectLabelGeometry, geometryDetails } from './label-geometry';
 
 const PHASE1_TASK_TYPES: DatasetTaskType[] = ['DETECT', 'OBB'];
 const DISPATCH_EVENT = 'job.dataset_scan.dispatch';
 
 type Actor = { id: string; role: string };
 type Exec = Kysely<Database>;
-
-/**
- * Guess a folder's task type from its label geometry, for one-click registration where
- * the user is never asked. DETECT rows are `cls cx cy w h`, OBB rows are
- * `cls x1 y1 … x4 y4`; either may carry one extra trailing confidence column, which the
- * scanner accepts and the build strips.
- *
- * Returns null when nothing readable says either way — the caller picks the default.
- */
-async function sniffTaskType(datasetDir: string): Promise<DatasetTaskType | null> {
-  let files: string[];
-  try {
-    files = (await fs.promises.readdir(`${datasetDir}/labels`))
-      .filter((f) => f.endsWith('.txt') && !f.startsWith('.'))
-      .sort()
-      .slice(0, 5);
-  } catch {
-    return null;
-  }
-  for (const f of files) {
-    let text: string;
-    try { text = await fs.promises.readFile(`${datasetDir}/labels/${f}`, 'utf8'); } catch { continue; }
-    for (const line of text.split('\n')) {
-      const n = line.trim().split(/\s+/).filter(Boolean).length;
-      if (n === 5 || n === 6) return 'DETECT';
-      if (n === 9 || n === 10) return 'OBB';
-    }
-  }
-  return null;
-}
 
 const err = (code: string, message: string, status: number, details?: Record<string, unknown>) =>
   new HttpException({ error: { code, message, details, requestId: '' } }, status);
@@ -158,6 +129,27 @@ export class SourceDatasetsService {
         if (!validRelPath(p) && !p.startsWith('/')) {
           throw err(errorCode.DATASET_PATH_INVALID, `invalid path: ${p}`, 400);
         }
+      }
+      const geometry = await inspectLabelGeometry(
+        relativePath,
+        labelsRel,
+        input.allow_subdirectories ?? false,
+      );
+      if (geometry.geometry === 'MIXED') {
+        throw err(
+          errorCode.DATASET_MIXED_LABEL_GEOMETRY,
+          'label files contain both BBOX (DETECT) and OBB geometry',
+          400,
+          geometryDetails(geometry),
+        );
+      }
+      if (geometry.geometry && geometry.geometry !== input.task_type) {
+        throw err(
+          errorCode.DATASET_LABEL_GEOMETRY_TASK_MISMATCH,
+          `label geometry is ${geometry.geometry === 'DETECT' ? 'BBOX (DETECT)' : 'OBB'}, but task_type is ${input.task_type}`,
+          400,
+          geometryDetails(geometry),
+        );
       }
       // One-click registration never sends a classes file — auto-detect the standard
       // Ultralytics <dataset_root>/classes.txt layout so scans use real class names
@@ -514,9 +506,19 @@ export class SourceDatasetsService {
     // wrong makes the scan fail on geometry. Read it off the labels instead.
     let taskType = input.task_type;
     const eff = await this.tree.effectiveBasePath(this.db, input.dataset_type_id);
-    if (!taskType) {
-      taskType = (eff ? await sniffTaskType(`${eff.dataset_path}/${input.sub_path}`) : null) ?? 'OBB';
+    if (!taskType && eff) {
+      const geometry = await inspectLabelGeometry(`${eff.dataset_path}/${input.sub_path}`, 'labels', false);
+      if (geometry.geometry === 'MIXED') {
+        throw err(
+          errorCode.DATASET_MIXED_LABEL_GEOMETRY,
+          'label files contain both BBOX (DETECT) and OBB geometry',
+          400,
+          geometryDetails(geometry),
+        );
+      }
+      taskType = geometry.geometry ?? undefined;
     }
+    taskType ??= 'OBB';
     const row = await this.register({
       name, dataset_type_id: input.dataset_type_id,
       task_type: taskType, sub_path: input.sub_path,
@@ -606,8 +608,16 @@ export class SourceDatasetsService {
     for (const { sub_path: name } of entries) {
       const reg = registered.get(name);
       if (!reg) {
-        const row = await this.ensure({ dataset_type_id: datasetTypeId, sub_path: name }, actor);
-        results.push({ sub_path: name, action: 'registered', source_dataset_id: row.id });
+        try {
+          const row = await this.ensure({ dataset_type_id: datasetTypeId, sub_path: name }, actor);
+          results.push({ sub_path: name, action: 'registered', source_dataset_id: row.id });
+        } catch (e) {
+          const response = e instanceof HttpException ? e.getResponse() : null;
+          const reason = typeof response === 'object' && response && 'error' in response
+            ? String((response as { error?: { message?: string } }).error?.message ?? 'registration failed')
+            : e instanceof Error ? e.message : 'registration failed';
+          results.push({ sub_path: name, action: 'skipped', reason });
+        }
         continue;
       }
       if (reg.status === 'SCANNING') {

@@ -67,6 +67,16 @@ const LOW_TRAIN_RATIO = 0.5;
 
 const NAME_RE = /^[a-zA-Z0-9_-]{1,255}$/;
 
+/**
+ * Label a source dataset's geometry the way the rest of the UI does. `task_type` is the
+ * API enum; `BBOX` is what users call `DETECT` everywhere a label format is shown.
+ */
+function formatLabel(taskType: string | null | undefined): string {
+  if (taskType === 'DETECT') return 'BBOX';
+  if (taskType === 'OBB') return 'OBB';
+  return 'Unknown';
+}
+
 function toggle(list: string[], id: string): string[] {
   return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
 }
@@ -110,6 +120,9 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
   // BUILT
   const [sourceIds, setSourceIds] = useState<string[]>([]);
   const [sourceSearch, setSourceSearch] = useState('');
+  // Set when a task-type change drops an existing selection, so the Sources step can say
+  // why the list came back empty instead of silently losing the picks.
+  const [droppedForFormat, setDroppedForFormat] = useState(0);
   // Anchor for shift-click range selection: the last row toggled without shift.
   const [lastPicked, setLastPicked] = useState<number | null>(null);
   const shiftHeld = useRef(false);
@@ -191,6 +204,24 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
   // instead of letting build-config reject the selection afterwards.
   const readySources = (sources ?? []).filter((s) => s.status === 'READY' && s.task_type === taskType);
 
+  // A selection made under one task type must not survive a switch to the other. The
+  // Sources list only renders the matching sources, so a stale id would be invisible here
+  // yet still be posted to build-config and rejected as a task-type mismatch. Prune it,
+  // and drop the class validation that was computed from the old set.
+  const selectableIds = new Set(readySources.map((s) => s.id));
+  const mismatchedIds = sources === undefined ? [] : sourceIds.filter((id) => !selectableIds.has(id));
+  useEffect(() => {
+    if (origin !== 'BUILT' || mismatchedIds.length === 0) return;
+    setSourceIds((prev) => prev.filter((id) => selectableIds.has(id)));
+    setDroppedForFormat(mismatchedIds.length);
+    setLastPicked(null);
+    setValidation(null);
+    setValError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [origin, mismatchedIds.length]);
+
+  const otherFormatCount = readyByTask[taskType === 'OBB' ? 'DETECT' : 'OBB'];
+
   const [train, val, test] = ratios;
   const ratioSum = train + val + test;
   const ratiosValid = Math.abs(ratioSum - 1) < 1e-6 && train > 0 && val >= 0 && test >= 0;
@@ -228,6 +259,19 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
 
   const createMut = useMutation({
     mutationFn: async () => {
+      // Last line of defence before anything is created: a source whose geometry no longer
+      // matches the chosen format must never reach build-config, which would leave a
+      // half-created DRAFT dataset behind when it rejects the mismatch.
+      if (origin === 'BUILT') {
+        const bad = (sources ?? []).filter((s) => sourceIds.includes(s.id) && s.task_type !== taskType);
+        if (bad.length > 0) {
+          throw new Error(
+            `Selection mixes label formats: ${bad.map((s) => `${s.name} (${formatLabel(s.task_type)})`).join(', ')} `
+            + `${bad.length === 1 ? 'is' : 'are'} not ${formatLabel(taskType)}. Go back to Sources and reselect.`,
+          );
+        }
+      }
+
       const created = await apiSend<{ id: string }>('POST', '/training-datasets', {
         name,
         dataset_type_id: typeId,
@@ -272,7 +316,7 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
     const label = STEPS[step];
     if (label === 'Type & Origin') return !!typeId;
     if (label === 'Details') return nameValid && nameTaken === false && taskTypeAvailable(taskType);
-    if (label === 'Sources') return sourceIds.length > 0;
+    if (label === 'Sources') return sourceIds.length > 0 && mismatchedIds.length === 0;
     if (label === 'Classes') return validation?.compatible === true;
     if (label === 'Directory') return !!relPath;
     if (label === 'Split') return splitTouched && (strategy === 'RANDOM' ? ratiosValid : ack);
@@ -283,7 +327,7 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
     const lbl = STEPS[i];
     if (lbl === 'Type & Origin') return !!typeId;
     if (lbl === 'Details') return nameValid && nameTaken === false && taskTypeAvailable(taskType);
-    if (lbl === 'Sources') return sourceIds.length > 0;
+    if (lbl === 'Sources') return sourceIds.length > 0 && mismatchedIds.length === 0;
     if (lbl === 'Classes') return validation?.compatible === true;
     if (lbl === 'Directory') return !!relPath;
     if (lbl === 'Split') return splitTouched && (strategy === 'RANDOM' ? ratiosValid : ack);
@@ -404,7 +448,7 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
               </label>
 
               <div className="field">
-                <span>Task type</span>
+                <span>Label format</span>
                 <div className="choice-row">
                   {(['OBB', 'DETECT'] as TaskType[]).map((t) => {
                     const available = taskTypeAvailable(t);
@@ -416,10 +460,10 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
                         title={available ? undefined : `No READY ${t} source datasets under ${activeType?.name ?? 'this type'}`}
                         onClick={() => setTaskType(t)}
                       >
-                        {t}
+                        {formatLabel(t)}
                         <span className="choice-sub">
                           {gateTaskTypes
-                            ? `${readyByTask[t]} READY source dataset${readyByTask[t] === 1 ? '' : 's'}`
+                            ? `${readyByTask[t]} READY ${formatLabel(t)} source dataset${readyByTask[t] === 1 ? '' : 's'}`
                             : t === 'OBB' ? 'oriented boxes (9 fields)' : 'axis-aligned boxes (5 fields)'}
                         </span>
                       </button>
@@ -443,9 +487,24 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
           {label === 'Sources' && typeId && (
             <>
               <p className="hint">
-                READY <strong>{taskType}</strong> source datasets under <strong>{activeType?.name}</strong>
+                READY <strong>{formatLabel(taskType)}</strong> source datasets under <strong>{activeType?.name}</strong>
                 {' — '}{sourceIds.length} of {readySources.length} selected
               </p>
+              <PrereqNotice
+                message={`Only ${formatLabel(taskType)} sources are listed. A training dataset cannot mix BBOX and OBB labels — change the label format on the previous step to build from the other geometry.`}
+              />
+              {droppedForFormat > 0 && (
+                <div className="error-banner">
+                  {droppedForFormat} previously selected source dataset(s) were removed because they
+                  are not {formatLabel(taskType)}. Pick the sources for this format again.
+                </div>
+              )}
+              {otherFormatCount > 0 && (
+                <p className="hint">
+                  {otherFormatCount} READY {formatLabel(taskType === 'OBB' ? 'DETECT' : 'OBB')} source
+                  dataset(s) under this type are hidden — they belong to a separate training dataset.
+                </p>
+              )}
               <input
                 type="text"
                 className="folder-search-input"
@@ -465,7 +524,7 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
                     type="button"
                     className="btn btn-sm"
                     disabled={sourceIds.length === readySources.length}
-                    onClick={() => { setSourceIds(readySources.map((s) => s.id)); setLastPicked(null); }}
+                    onClick={() => { setSourceIds(readySources.map((s) => s.id)); setDroppedForFormat(0); setLastPicked(null); }}
                   >
                     Select all
                   </button>
@@ -473,7 +532,7 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
                     type="button"
                     className="btn btn-sm"
                     disabled={sourceIds.length === 0}
-                    onClick={() => { setSourceIds([]); setLastPicked(null); }}
+                    onClick={() => { setSourceIds([]); setDroppedForFormat(0); setLastPicked(null); }}
                   >
                     Clear
                   </button>
@@ -514,6 +573,7 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
                         onChange={() => {
                           const shift = shiftHeld.current;
                           setSourceIds(pickSources(readySources, sourceIds, i, lastPicked, shift));
+                          setDroppedForFormat(0);
                           if (!shift) setLastPicked(i);
                         }}
                       />
@@ -521,6 +581,7 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
                         {s.name}
                         <span className="check-sub">
                           {s.sub_path ?? s.relative_path}
+                          {` · ${formatLabel(s.task_type)}`}
                           {s.image_count !== null && s.image_count !== undefined
                             ? ` · ${Number(s.image_count)} images`
                             : ''}
