@@ -17,6 +17,7 @@ import uuid
 import psycopg
 
 from . import log
+from .gpu_alloc import GpuAllocation
 from .heartbeat import Heartbeat
 from .model_cache import fetch_model_file
 from .run_outputs import upload_run_outputs
@@ -119,8 +120,15 @@ class Trainer:
             self.conn.commit()
             self._audit(job_id, correlation_id, "TRAINING_JOB_RUNNING", "SUCCESS", {"from": "PREPARING", "to": "RUNNING"})
 
-            with Heartbeat(self.cfg.pg_conninfo(), job_execution_id, self.cfg.heartbeat_interval_s):
-                best_pt = self._train(ctx, work_dir, job_id, job_execution_id)
+            # Record the GPU(s) this run occupies so the dashboard can attribute a
+            # busy card to this job; released on exit even if training fails.
+            # The effective device is the job's own `device` hyperparameter when set
+            # (same precedence as train_args below, where **extra overrides the default),
+            # otherwise the worker's configured device.
+            device = str((ctx.get("hp") or {}).get("device") or self.cfg.device)
+            with GpuAllocation(self.cfg.pg_conninfo(), job_execution_id, self.cfg.consumer, device):
+                with Heartbeat(self.cfg.pg_conninfo(), job_execution_id, self.cfg.heartbeat_interval_s):
+                    best_pt = self._train(ctx, work_dir, job_id, job_execution_id)
             run_base = os.path.join(work_dir, "run")
             result = self._store_and_register(ctx, job_id, job_execution_id, correlation_id, best_pt, run_base)
             model_root_path = result.get("model_root_path")

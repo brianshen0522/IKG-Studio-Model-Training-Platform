@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/pyright/main/packages/vscode-pyright/schemas/pyrightconfig.schema.json",
+  "pythonVersion": "3.10",
+  "include": ["workers/training-worker/src", "workers/dataset-worker/src"],
+  "executionEnvironments": [
+    {
+      "root": "workers/training-worker/src",
+      "extraPaths": [
+        "workers/training-worker/src",
+        "workers/training-worker/.venv/lib/python3.13/site-packages"
+      ]
+    },
+    {
+      "root": "workers/dataset-worker/src",
+      "extraPaths": [
+        "workers/dataset-worker/src",
+        "workers/dataset-worker/.venv/lib/python3.13/site-packages"
+      ]
+    }
+  ]
+}
