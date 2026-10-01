@@ -48,6 +48,14 @@ export interface WorkerGpusTable {
   last_seen_at: Generated<string>;
 }
 
+/** Which physical GPU(s) an execution occupied; `released_at` null means still held. */
+export interface JobExecutionGpusTable {
+  job_execution_id: string;
+  worker_gpu_id: string;
+  allocated_at: Generated<string>;
+  released_at: string | null;
+}
+
 // ── Table Interfaces ──
 export interface UsersTable {
   id: Generated<string>;
@@ -661,6 +669,7 @@ export interface Database {
   webauthn_challenges: WebauthnChallengesTable;
   workers: WorkersTable;
   worker_gpus: WorkerGpusTable;
+  job_execution_gpus: JobExecutionGpusTable;
 }
 
 export function createDb(config: PoolConfig) {

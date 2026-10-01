@@ -3,6 +3,7 @@ import { apiGet } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { SkeletonLoader } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
+import { GpuStatusPanel } from '../components/GpuStatusPanel';
 import { formatDate } from '../lib/format';
 
 interface SystemHealth {
@@ -93,6 +94,10 @@ export function DashboardPage() {
               <div className="stat-label">Dead-Letter Outbox</div>
             </div>
           </div>
+
+          {/* Own query + faster poll than the summary, so GPU numbers stay live. */}
+          <h3 className="dash-h">GPU Status</h3>
+          <GpuStatusPanel />
 
           <h3 className="dash-h">Active Jobs</h3>
           {data.active_jobs.length > 0 ? (

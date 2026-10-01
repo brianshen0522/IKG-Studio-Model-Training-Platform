@@ -12,6 +12,7 @@ import uuid
 import psycopg
 
 from . import log
+from .gpu_alloc import GpuAllocation
 from .heartbeat import Heartbeat
 from .model_cache import fetch_model_file
 from .run_outputs import upload_run_outputs
@@ -104,8 +105,12 @@ class Benchmarker:
         self.conn.commit()
         work_dir = os.path.join(ctx["model_root_host"], ".benchmark", eval_id)
         try:
-            with Heartbeat(self.cfg.pg_conninfo(), job_execution_id, self.cfg.heartbeat_interval_s):
-                metrics = self._evaluate(ctx, work_dir, eval_id)
+            # Benchmarks share the training worker and its GPUs, so attribute the card
+            # to this evaluation the same way training does.
+            device = str(ctx.get("device") or self.cfg.device)
+            with GpuAllocation(self.cfg.pg_conninfo(), job_execution_id, self.cfg.consumer, device):
+                with Heartbeat(self.cfg.pg_conninfo(), job_execution_id, self.cfg.heartbeat_interval_s):
+                    metrics = self._evaluate(ctx, work_dir, eval_id)
             self._complete(ctx, eval_id, run_id, job_execution_id, correlation_id, metrics)
         except BenchmarkStopped:
             self._stopped(eval_id, run_id, job_execution_id, correlation_id)

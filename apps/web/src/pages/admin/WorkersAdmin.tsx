@@ -3,6 +3,7 @@ import { apiGetList } from '../../lib/api';
 import { StatusBadge } from '../../components/StatusBadge';
 import { SkeletonLoader } from '../../components/SkeletonLoader';
 import { EmptyState } from '../../components/EmptyState';
+import { GpuStatusPanel } from '../../components/GpuStatusPanel';
 import { formatDate } from '../../lib/format';
 
 interface WorkerRow {
@@ -31,6 +32,10 @@ export function WorkersAdmin() {
       <header className="page-head">
         <h2>Workers</h2>
       </header>
+
+      {/* Same live GPU view as the dashboard: this is where someone diagnosing a
+          worker looks first, and the cards name the host each GPU belongs to. */}
+      <GpuStatusPanel />
 
       {isLoading && <SkeletonLoader rows={5} cols={4} />}
       {error && <EmptyState type="error" message={(error as Error).message} />}
