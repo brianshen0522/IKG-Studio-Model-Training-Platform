@@ -70,7 +70,54 @@ STATUS=$?
 # After a successful `up`, confirm what training-worker actually got — GPU detection above
 # only checks the host; the container could still end up CPU-only (e.g. driver/toolkit
 # mismatch, or torch built for the wrong CUDA version).
+#
+# Only when this `up` could actually have changed training-worker. `up` accepts a service
+# list, so `./up.sh up -d --force-recreate migrate` used to report on the *existing*
+# worker container and could print a CUDA warning that had nothing to do with the command
+# that was just run — misleading enough to look like the migration had broken the GPU.
+# A bare `up` (no service names) covers everything, so it still checks.
+CHECK_GPU=0
 if [ "$STATUS" -eq 0 ] && [ "${1:-}" = "up" ]; then
+  CHECK_GPU=1
+  saw_service=0
+  pending=""
+  for arg in "$@"; do
+    [ "$arg" = "up" ] && continue
+    # Value of a preceding option, not a service name.
+    if [ -n "$pending" ]; then
+      if [ "$pending" = scale ]; then
+        # `--scale svc=N` selects a service as surely as a bare name does.
+        saw_service=1
+        case $arg in
+          training-worker=*) CHECK_GPU=1; break ;;
+          *) CHECK_GPU=0 ;;
+        esac
+      fi
+      pending=""
+      continue
+    fi
+    case $arg in
+      --scale) pending=scale ;;
+      --scale=training-worker=*)
+        saw_service=1
+        CHECK_GPU=1
+        break ;;
+      --scale=*)
+        saw_service=1
+        CHECK_GPU=0 ;;
+      # Options that take a separate value, which must not be read as a service name.
+      --exit-code-from|--timeout|-t|--project-name|-p|--file|-f)
+        pending=other ;;
+      -*) ;;
+      *) saw_service=1
+         [ "$arg" = "training-worker" ] && CHECK_GPU=1 && break
+         CHECK_GPU=0 ;;
+    esac
+  done
+  [ "$saw_service" -eq 0 ] && CHECK_GPU=1
+fi
+
+if [ "$CHECK_GPU" -eq 1 ]; then
   echo "up.sh: checking training-worker GPU support (first torch import can take a while)…" >&2
   # Spinner so the wait doesn't look like a hang.
   docker compose --project-name "$PROJECT_NAME" -f docker-compose.yml $GPU_ARGS -f "$OVERLAY" exec -T training-worker \

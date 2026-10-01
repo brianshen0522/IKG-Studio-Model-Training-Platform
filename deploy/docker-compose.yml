@@ -54,7 +54,24 @@ services:
       retries: 20
 
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    # minio/minio is no longer publicly pullable: the RELEASE tag pinned here before,
+    # :latest, and even an explicit digest all return "denied: requested access to the
+    # resource is denied", while postgres/redis pull fine from the same host. quay.io
+    # and ghcr.io mirrors are not public either. So `up` failed on minio even when the
+    # command targeted an unrelated service.
+    #
+    # Pinned to the digest this deployment already runs (server RELEASE.2025-09-07),
+    # with pull_policy: never so Compose uses the local image instead of a doomed
+    # registry round-trip. Data is on the ../data/minio bind mount; recreating the
+    # container does not touch it.
+    #
+    # Consequences, deliberately: a host without this image cached cannot start minio,
+    # and `docker image prune -a` destroys it irrecoverably — save it first
+    # (docker save minio/minio@sha256:14cea4… -o minio.tar). Moving to a maintained
+    # S3-compatible server is the real fix and needs a decision, since artifact
+    # storage is load-bearing (AGENTS.md rule 3).
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    pull_policy: never
     restart: unless-stopped
     command: server /data --console-address ":9001"
     networks: [internal-network]
