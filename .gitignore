@@ -7,6 +7,12 @@ dist/
 .env.*.local
 deploy/docker-compose.data-roots.yml
 
+# Written by deploy/migrate-minio-to-seaweedfs.sh. The .generated.json holds the real S3
+# credentials substituted into seaweedfs-s3.json, so it must never reach history; the
+# compose override is scratch that the script rewrites on every run.
+deploy/seaweedfs-s3.generated.json
+deploy/docker-compose.migration.yml
+
 # Python
 __pycache__/
 *.py[cod]
