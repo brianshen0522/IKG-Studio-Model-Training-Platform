@@ -19,12 +19,19 @@ def _sha256(path: str) -> str:
     return h.hexdigest()
 
 
-def fetch_model_file(storage, dest_dir: str, model_id: str, local_path: str,
-                     bucket: str, object_key: str, checksum: str) -> str:
+def fetch_model_file(storage, dest_dir: str, model_id: str, local_path: str | None,
+                     bucket: str | None, object_key: str | None,
+                     checksum: str | None) -> str:
     """Return a usable local weights path for ``model_id``.
 
     Prefers the on-disk Model Root copy. If absent, downloads the BEST_MODEL MinIO
     artifact into ``dest_dir`` and verifies its SHA-256. Raises when neither exists.
+
+    The optional parameters are optional in fact, not merely in practice: callers
+    unpack them from a nullable ``base_artifact`` tuple, and a model with no stored
+    artifact legitimately passes None for all three. The body already handles that
+    (the bucket/object_key guard below); the annotations now say so, instead of
+    claiming a ``str`` the callers cannot promise.
     """
     if local_path and os.path.isfile(local_path):
         return local_path
