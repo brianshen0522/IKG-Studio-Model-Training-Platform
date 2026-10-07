@@ -2,22 +2,24 @@
 #
 # Real service topology (matches the code, unlike the earlier draft):
 #   infra:    postgres, redis, minio
-#   init:     migrate (schema + role passwords), bootstrap (first admin)  [one-shot]
-#   runtime:  backend, web, scheduler, training-worker, dataset-worker
-# There is NO separate benchmark-worker / model-ingest-worker: benchmark runs inside
+# init: migrate (schema + role passwords), bootstrap (first admin) [one-shot]
+# runtime: backend, web, scheduler, training-worker, dataset-worker There is NO
+# separate benchmark-worker / model-ingest-worker: benchmark runs inside
 # training-worker (benchmarker.py) and model-ingest inside dataset-worker.
 #
-# Config comes from deploy/.env (copy from env.example). Secrets are env vars — nothing
-# is hardcoded here. `tls-proxy` terminates TLS (self-signed, HTTP/2) and is the only
-# container publishing a host port; `web` is internal-only. Keep COOKIE_SECURE=true and
-# WEBAUTHN_ORIGIN=https://... (see README.md).
+# Config comes from deploy/.env (copy from env.example). Secrets are env vars —
+# nothing is hardcoded here. `tls-proxy` terminates TLS (self-signed, HTTP/2)
+# and is the only container publishing a host port; `web` is internal-only. Keep
+# COOKIE_SECURE=true and WEBAUTHN_ORIGIN=https://... (see README.md).
 #
-# GPU:  add `-f docker-compose.yml -f docker-compose.gpu.yml` and set TRAINING_DEVICE=0.
+# GPU: add `-f docker-compose.yml -f docker-compose.gpu.yml` and set
+# TRAINING_DEVICE=0.
 #
-# DATA_ROOT mounts (one or more comma-separated host paths, read by backend/workers via
-# apps/api/src/common/roots.ts) are NOT declared here — a static `volumes:` entry can't
-# expand a variable into N mount lines. Always run via ./up.sh, which generates
-# docker-compose.data-roots.yml from DATA_ROOT and passes it as an extra -f overlay.
+# DATA_ROOT mounts (one or more comma-separated host paths, read by
+# backend/workers via apps/api/src/common/roots.ts) are NOT declared here — a
+# static `volumes:` entry can't expand a variable into N mount lines. Always run
+# via ./up.sh, which generates docker-compose.data-roots.yml from DATA_ROOT and
+# passes it as an extra -f overlay.
 
 networks:
   public-network:
@@ -53,40 +55,44 @@ services:
       timeout: 3s
       retries: 20
 
-  # Artifact object store. This was minio/minio, which stopped being publicly pullable
-  # at every tag, mirror and digest, so the image had to be pinned by digest with
-  # pull_policy: never — leaving artifact storage unable to start on a host without it
-  # cached, and one `docker image prune -a` away from being irrecoverable. SeaweedFS is
-  # pullable, which is the whole reason for the change.
+  # Artifact object store. This was minio/minio, which stopped being publicly
+  # pullable at every tag, mirror and digest, so the image had to be pinned by
+  # digest with pull_policy: never — leaving artifact storage unable to start on
+  # a host without it cached, and one `docker image prune -a` away from being
+  # irrecoverable. SeaweedFS is pullable, which is the whole reason for the
+  # change.
   #
-  # The service name and the MINIO_* variables are deliberately unchanged. They are read
-  # in 16 places and renaming them is a one-line sed, so this is not about effort: every
-  # consumer falls back to `?? 'minioadmin'` when its variable is missing, so a
-  # half-finished rename would not fail loudly — it would quietly authenticate with the
-  # wrong credentials against artifact storage. Renaming them to S3_* is a separate,
-  # independently revertable commit. Until it lands, these names are inaccurate.
+  # The service name and the MINIO_* variables are deliberately unchanged. They
+  # are read in 16 places and renaming them is a one-line sed, so this is not
+  # about effort: every consumer falls back to `?? 'minioadmin'` when its
+  # variable is missing, so a half-finished rename would not fail loudly — it
+  # would quietly authenticate with the wrong credentials against artifact
+  # storage. Renaming them to S3_* is a separate, independently revertable
+  # commit. Until it lands, these names are inaccurate.
   #
-  # Data was copied by deploy/migrate-minio-to-seaweedfs.sh and verified byte-for-byte by
-  # SHA-256 read back through this server, then reconciled against app.artifacts.
-  # ../data/minio is kept as the rollback path and is still the only copy of the
-  # pre-migration artifacts (AGENTS.md rule 3).
+  # Data was copied by deploy/migrate-minio-to-seaweedfs.sh and verified
+  # byte-for-byte by SHA-256 read back through this server, then reconciled
+  # against app.artifacts. ../data/minio is kept as the rollback path and is
+  # still the only copy of the pre-migration artifacts (AGENTS.md rule 3).
   minio:
     image: chrislusf/seaweedfs:3.68
     restart: unless-stopped
-    # volumePreallocate=false is what keeps this from reserving the whole disk: with the
-    # default on, volume files are fully allocated at creation, so 840 MiB of artifacts
-    # took 57 GB of blocks. `du -sb` reports apparent size and hides that completely;
-    # only df or `du -sk` shows it. The flag applies when a volume is created, so it must
-    # be set before data is written, not tuned afterwards.
+    # volumePreallocate=false is what keeps this from reserving the whole disk:
+    # with the default on, volume files are fully allocated at creation, so 840
+    # MiB of artifacts took 57 GB of blocks. `du -sb` reports apparent size and
+    # hides that completely; only df or `du -sk` shows it. The flag applies when
+    # a volume is created, so it must be set before data is written, not tuned
+    # afterwards.
     #
-    # volumeSizeLimitMB is left at its 4096 default on purpose. Lowering it below the
-    # size the existing volume files were created at makes the master refuse to load
-    # them; the filer then never starts and the S3 gateway waits on it forever, so port
-    # 8333 never opens. That mistake is what took artifact storage down once already.
-    # -s3.port=9000 instead of the 8333 default so MINIO_ENDPOINT=minio:9000 keeps
-    # working untouched. Every service reads that endpoint from .env, and leaving the
-    # port alone means the cutover changes one service definition rather than the
-    # configuration of backend, scheduler and both workers at the same time.
+    # volumeSizeLimitMB is left at its 4096 default on purpose. Lowering it
+    # below the size the existing volume files were created at makes the master
+    # refuse to load them; the filer then never starts and the S3 gateway waits
+    # on it forever, so port 8333 never opens. That mistake is what took
+    # artifact storage down once already. -s3.port=9000 instead of the 8333
+    # default so MINIO_ENDPOINT=minio:9000 keeps working untouched. Every
+    # service reads that endpoint from .env, and leaving the port alone means
+    # the cutover changes one service definition rather than the configuration
+    # of backend, scheduler and both workers at the same time.
     command: >
       server -s3 -dir=/data
       -s3.config=/etc/seaweedfs/s3.json
@@ -96,22 +102,23 @@ services:
     volumes:
       - ../data/seaweedfs:/data
       - ./seaweedfs-s3.generated.json:/etc/seaweedfs/s3.json:ro
-    # Without an identity file the S3 gateway authenticates nobody and accepts any
-    # credentials at all, so this mount is what makes artifact storage non-public. up.sh
-    # generates it from the committed placeholder template; it holds real keys, is 0600,
-    # and is gitignored.
+    # Without an identity file the S3 gateway authenticates nobody and accepts
+    # any credentials at all, so this mount is what makes artifact storage
+    # non-public. up.sh generates it from the committed placeholder template; it
+    # holds real keys, is 0600, and is gitignored.
     healthcheck:
-      # /status via wget: this image ships no curl, and both / and /healthz answer 403
-      # once an identity file is configured, so the obvious probe would report unhealthy
-      # forever while the server was serving normally. Loading existing volumes takes
-      # ~30s, hence the retry budget.
+      # /status via wget: this image ships no curl, and both / and /healthz
+      # answer 403 once an identity file is configured, so the obvious probe
+      # would report unhealthy forever while the server was serving normally.
+      # Loading existing volumes takes ~30s, hence the retry budget.
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9000/status || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 30
 
-  # One-shot: apply pending migrations (idempotent, tracked in app.schema_migrations)
-  # then inject the per-service role passwords. Runs as the migration role.
+  # One-shot: apply pending migrations (idempotent, tracked in
+  # app.schema_migrations) then inject the per-service role passwords. Runs as
+  # the migration role.
   migrate:
     build:
       context: ..
@@ -127,7 +134,8 @@ services:
       - node_modules/.bin/tsx packages/db/src/migrate.ts && node_modules/.bin/tsx scripts/set-db-roles.ts
     restart: "no"
 
-  # One-shot: create the first admin if none exists (idempotent). Uses backend_role.
+  # One-shot: create the first admin if none exists (idempotent). Uses
+  # backend_role.
   bootstrap:
     build:
       context: ..
@@ -177,8 +185,8 @@ services:
     depends_on:
       backend: { condition: service_healthy }
 
-  # TLS termination (self-signed cert, HTTP/2) — the ONLY container that publishes a
-  # host port. See nginx/tls-proxy.conf + nginx/tls-entrypoint.sh.
+  # TLS termination (self-signed cert, HTTP/2) — the ONLY container that
+  # publishes a host port. See nginx/tls-proxy.conf + nginx/tls-entrypoint.sh.
   tls-proxy:
     build:
       context: ..
@@ -221,24 +229,26 @@ services:
       dockerfile: deploy/Dockerfile.training-worker
       network: host
     restart: unless-stopped
-    # Also on public-network purely for egress: Ultralytics fetches official pretrained
-    # weights from GitHub, and internal-network is `internal: true` (no DNS, no route
-    # out). No ports are published, so nothing here becomes reachable from outside.
+    # Also on public-network purely for egress: Ultralytics fetches official
+    # pretrained weights from GitHub, and internal-network is `internal: true`
+    # (no DNS, no route out). No ports are published, so nothing here becomes
+    # reachable from outside.
     networks: [internal-network, public-network]
     env_file: [.env]
     # PyTorch DataLoader workers pass batches back to the main process over
     # /dev/shm. Docker's 64MB default is too small once num_workers>0 on GPU
     # training and workers get killed with SIGBUS ("out of shared memory").
     shm_size: 8gb
-    # DATA_ROOT mount(s) come from docker-compose.data-roots.yml (generated by up.sh).
+    # DATA_ROOT mount(s) come from docker-compose.data-roots.yml (generated by
+    # up.sh).
     environment:
       POSTGRES_USER: worker_role
       POSTGRES_PASSWORD: ${WORKER_DB_PASSWORD}
       WORKER_KEY: training-worker-1
       TRAINING_DEVICE: ${TRAINING_DEVICE:-cpu}
       WORKER_HEARTBEAT_INTERVAL_S: ${WORKER_HEARTBEAT_INTERVAL_S:-20}
-      # Downloaded official weights land here and are reused by later jobs. Pre-seed
-      # this directory to run fully air-gapped.
+      # Downloaded official weights land here and are reused by later jobs.
+      # Pre-seed this directory to run fully air-gapped.
       YOLO_WEIGHTS_CACHE: /opt/yolo-weights
       YOLO_CONFIG_DIR: /opt/yolo-weights
     volumes:
