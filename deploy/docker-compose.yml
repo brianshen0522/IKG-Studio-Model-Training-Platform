@@ -83,9 +83,14 @@ services:
     # size the existing volume files were created at makes the master refuse to load
     # them; the filer then never starts and the S3 gateway waits on it forever, so port
     # 8333 never opens. That mistake is what took artifact storage down once already.
+    # -s3.port=9000 instead of the 8333 default so MINIO_ENDPOINT=minio:9000 keeps
+    # working untouched. Every service reads that endpoint from .env, and leaving the
+    # port alone means the cutover changes one service definition rather than the
+    # configuration of backend, scheduler and both workers at the same time.
     command: >
       server -s3 -dir=/data
       -s3.config=/etc/seaweedfs/s3.json
+      -s3.port=9000
       -master.volumePreallocate=false
     networks: [internal-network]
     volumes:
@@ -100,7 +105,7 @@ services:
       # once an identity file is configured, so the obvious probe would report unhealthy
       # forever while the server was serving normally. Loading existing volumes takes
       # ~30s, hence the retry budget.
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8333/status || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9000/status || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 30
