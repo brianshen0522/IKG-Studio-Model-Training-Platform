@@ -82,7 +82,19 @@ services:
   seaweedfs-new:
     image: chrislusf/seaweedfs:3.68
     restart: "no"
-    command: server -s3 -dir=/data -s3.config=/etc/seaweedfs/s3.json -master.volumeSizeLimitMB=4096
+    # volumePreallocate=false is the setting that matters for disk: with the default on,
+    # every volume file is fully allocated up front, so 840 MiB of artifacts reserved
+    # 57 GB of blocks. `du -sb` reports apparent size and hides this entirely; only df
+    # or `du -sk` shows it. The flag only affects volumes at creation time, so it has to
+    # be set before the copy rather than tuned afterwards.
+    #
+    # volumeSizeLimitMB stays at the 4096 default on purpose: lowering it below the size
+    # the existing volume files were created at makes the master refuse to load them, and
+    # the S3 gateway then waits on the filer forever.
+    command: >
+      server -s3 -dir=/data
+      -s3.config=/etc/seaweedfs/s3.json
+      -master.volumePreallocate=false
     networks: [internal-network]
     volumes:
       - ../data/seaweedfs:/data

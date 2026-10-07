@@ -53,38 +53,57 @@ services:
       timeout: 3s
       retries: 20
 
+  # Artifact object store. This was minio/minio, which stopped being publicly pullable
+  # at every tag, mirror and digest, so the image had to be pinned by digest with
+  # pull_policy: never — leaving artifact storage unable to start on a host without it
+  # cached, and one `docker image prune -a` away from being irrecoverable. SeaweedFS is
+  # pullable, which is the whole reason for the change.
+  #
+  # The service name and the MINIO_* variables are deliberately unchanged. They are read
+  # in 16 places and renaming them is a one-line sed, so this is not about effort: every
+  # consumer falls back to `?? 'minioadmin'` when its variable is missing, so a
+  # half-finished rename would not fail loudly — it would quietly authenticate with the
+  # wrong credentials against artifact storage. Renaming them to S3_* is a separate,
+  # independently revertable commit. Until it lands, these names are inaccurate.
+  #
+  # Data was copied by deploy/migrate-minio-to-seaweedfs.sh and verified byte-for-byte by
+  # SHA-256 read back through this server, then reconciled against app.artifacts.
+  # ../data/minio is kept as the rollback path and is still the only copy of the
+  # pre-migration artifacts (AGENTS.md rule 3).
   minio:
-    # minio/minio is no longer publicly pullable: the RELEASE tag pinned here before,
-    # :latest, and even an explicit digest all return "denied: requested access to the
-    # resource is denied", while postgres/redis pull fine from the same host. quay.io
-    # and ghcr.io mirrors are not public either. So `up` failed on minio even when the
-    # command targeted an unrelated service.
-    #
-    # Pinned to the digest this deployment already runs (server RELEASE.2025-09-07),
-    # with pull_policy: never so Compose uses the local image instead of a doomed
-    # registry round-trip. Data is on the ../data/minio bind mount; recreating the
-    # container does not touch it.
-    #
-    # Consequences, deliberately: a host without this image cached cannot start minio,
-    # and `docker image prune -a` destroys it irrecoverably — save it first
-    # (docker save minio/minio@sha256:14cea4… -o minio.tar). Moving to a maintained
-    # S3-compatible server is the real fix and needs a decision, since artifact
-    # storage is load-bearing (AGENTS.md rule 3).
-    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
-    pull_policy: never
+    image: chrislusf/seaweedfs:3.68
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    # volumePreallocate=false is what keeps this from reserving the whole disk: with the
+    # default on, volume files are fully allocated at creation, so 840 MiB of artifacts
+    # took 57 GB of blocks. `du -sb` reports apparent size and hides that completely;
+    # only df or `du -sk` shows it. The flag applies when a volume is created, so it must
+    # be set before data is written, not tuned afterwards.
+    #
+    # volumeSizeLimitMB is left at its 4096 default on purpose. Lowering it below the
+    # size the existing volume files were created at makes the master refuse to load
+    # them; the filer then never starts and the S3 gateway waits on it forever, so port
+    # 8333 never opens. That mistake is what took artifact storage down once already.
+    command: >
+      server -s3 -dir=/data
+      -s3.config=/etc/seaweedfs/s3.json
+      -master.volumePreallocate=false
     networks: [internal-network]
     volumes:
-      - ../data/minio:/data
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+      - ../data/seaweedfs:/data
+      - ./seaweedfs-s3.generated.json:/etc/seaweedfs/s3.json:ro
+    # Without an identity file the S3 gateway authenticates nobody and accepts any
+    # credentials at all, so this mount is what makes artifact storage non-public. up.sh
+    # generates it from the committed placeholder template; it holds real keys, is 0600,
+    # and is gitignored.
     healthcheck:
-      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      # /status via wget: this image ships no curl, and both / and /healthz answer 403
+      # once an identity file is configured, so the obvious probe would report unhealthy
+      # forever while the server was serving normally. Loading existing volumes takes
+      # ~30s, hence the retry budget.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8333/status || exit 1"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 30
 
   # One-shot: apply pending migrations (idempotent, tracked in app.schema_migrations)
   # then inject the per-service role passwords. Runs as the migration role.
