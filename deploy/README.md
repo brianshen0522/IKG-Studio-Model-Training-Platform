@@ -205,6 +205,19 @@ git pull
 `migrate` only applies migrations not already in `app.schema_migrations`, and `bootstrap` skips
 when an admin exists — both are safe to re-run on every deploy.
 
+**`--build` is not optional when code or migrations changed.** `--force-recreate` alone restarts
+the *existing* images, so the containers keep running the old code against the new `.env`. If an
+upgrade renames an environment variable, the old code reads the name that no longer exists and
+starts up with an empty value instead of failing — artifact storage comes back up with empty
+credentials. The `migrate` image is the same trap in reverse: `database/migrations/` is **COPY'd
+into the image**, not bind-mounted, so a recreate without a build re-runs the old set of files and
+still logs `All migrations applied`. Trust `app.schema_migrations`, not that line.
+
+After changing storage or database variables, confirm what the container actually received:
+```sh
+docker inspect <project>-training-worker-1 --format '{{range .Config.Env}}{{println .}}{{end}}' | grep ^S3_
+```
+
 **Data & backups:** state lives in the `postgres-data`, `redis-data`, `objectstore-data` Docker volumes
 plus the bind-mounted storage roots. A plain `up`/`down` (without `-v`) preserves everything. Back
 up with `pg_dump` (Postgres) + the artifact bucket + the model/dataset roots. **Never** run
