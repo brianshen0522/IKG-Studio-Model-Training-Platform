@@ -31,7 +31,8 @@
 - `packages/api-client` 與其他 lib 不同：`main`/`types` 直接指向 **`src/index.ts`**（免 build），僅 web 消費。
 
 ## 基礎設施 / 本地開發
-- 全棧（3 app + workers + postgres/redis/objectstore/nginx + tls-proxy）跑 Docker：`cd deploy && ./up.sh up -d --build`（wrapper：展開 `DATA_ROOT` 成 bind mount、自動偵測 GPU 疊 `docker-compose.gpu.yml`；**一律用 `up.sh`，不要直接呼叫 `docker compose`**，靜態 compose 檔沒有掛載規則）。強制 CPU：`DEPLOY_FORCE_CPU=1 ./up.sh up -d --build`。
+- 全棧（3 app + workers + postgres/redis/objectstore/nginx + tls-proxy）跑 Docker：`cd deploy && ./up.sh up -d --build`（wrapper 做三件事：展開 `DATA_ROOT` 成 bind mount、自動偵測 GPU 疊 `docker-compose.gpu.yml`、釘 `--project-name ikg-studio-model-training-platform`；**一律用 `up.sh`，不要直接呼叫 `docker compose`**，靜態 compose 檔三者皆無）。強制 CPU：`DEPLOY_FORCE_CPU=1 ./up.sh up -d --build`。
+- **Project name 是 `ikg-studio-model-training-platform`，釘在 `up.sh:24`**。裸跑 `docker compose ps` 會拿**目錄名**當 project（在 `deploy/` 就是 `deploy`）而查到**空表**——容器都在，只是問錯命名空間；查詢要 `./up.sh ps` 或自己帶 `--project-name`。危害不只查不到：在 `deploy/` 裸跑 `docker compose up` 會另建一組 `deploy_*` 前綴的 named volume（實際發生過，`deploy_tls-certs` + `deploy_yolo-weights` 161 MB 掛空兩個月）。看到 `deploy_*` volume 就是這個錯誤的產物，確認 `docker ps -a --filter volume=<name>` 為空再刪。**不要**為了方便去 `.env` 設 `COMPOSE_PROJECT_NAME`：那會讓裸 `docker compose up` 看起來能用，卻仍舊缺 bind mount 與 GPU overlay；空表才是該有的失敗訊號。
 - `web` 已無對外 port，唯一對外容器是 `tls-proxy`（TLS termination + HTTP/2，自簽憑證，見 `deploy/README.md` §7）。
 - `migrate` 與 `bootstrap` 是 one-shot 服務，**每次 `up` 自動跑**，皆 idempotent，重跑無害。
 - **新增 migration 檔後必須先 build 再 recreate**：`./up.sh build migrate && ./up.sh up -d --force-recreate migrate`。migrate 是從 `Dockerfile.api` 把 `database/migrations/` **COPY 進 image**（不是 bind mount），只 `--force-recreate` 會拿舊 image 重跑，log 仍印 `All migrations applied` 但新檔根本不在容器裡。以 `app.schema_migrations` 的內容為準，不要相信那行 log。

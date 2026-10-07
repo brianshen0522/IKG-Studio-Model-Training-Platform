@@ -251,6 +251,26 @@ dashboard (System Health) and Admin → Workers.
   install your own certificate into the `tls-certs` volume.
 - **Login 429 (rate limited)** — login is throttled per IP / username / IP+username. Wait for the
   window (`RL_LOGIN_WINDOW_S`, default 300 s) or tune the `RL_LOGIN_*` limits in `.env`.
+- **`docker compose ps` prints an empty table** — you are looking at a different project. Compose
+  namespaces everything by *project name*, and with no `--project-name` it falls back to the
+  directory name, so running it from `deploy/` queries a project called `deploy`, which is empty.
+  `up.sh` pins `--project-name ikg-studio-model-training-platform` (see `up.sh:24`). For read-only
+  queries, either name it explicitly or go through the wrapper:
+  ```sh
+  docker compose --project-name ikg-studio-model-training-platform ps
+  ./up.sh ps     # same thing, and what you should prefer
+  ```
+  This is not cosmetic. A bare `docker compose up` in `deploy/` creates a *second*, parallel set of
+  named volumes prefixed `deploy_` instead of `ikg-studio-model-training-platform_`. That happened
+  here: `deploy_tls-certs` and `deploy_yolo-weights` (161 MB) sat unmounted for two months while
+  the real stack used its own copies. If you ever see `deploy_*` volumes in `docker volume ls`,
+  they are orphans from exactly this mistake — check `docker ps -a --filter volume=<name>` is empty
+  before removing them.
+
+  Setting `COMPOSE_PROJECT_NAME` in `.env` would make bare commands resolve correctly, but it is
+  deliberately *not* set: it would make `docker compose up` look like it works while still skipping
+  the `DATA_ROOT` bind mounts and the GPU overlay that only `up.sh` adds. Failing loudly with an
+  empty table is the better outcome.
 
 ---
 
@@ -260,8 +280,9 @@ dashboard (System Health) and Admin → Workers.
 - `docker-compose.gpu.yml` — GPU overlay (build CUDA torch + reserve the GPU).
 - `docker-compose.data-roots.yml` — **generated** by `up.sh` from `DATA_ROOT`; not committed, don't
   edit it by hand.
-- `up.sh` — wrapper around `docker compose` that expands `DATA_ROOT` into bind mounts. Use this
-  instead of calling `docker compose` directly.
+- `up.sh` — wrapper around `docker compose` that expands `DATA_ROOT` into bind mounts, applies the
+  GPU overlay when a GPU is present, and pins the project name. Use this instead of calling
+  `docker compose` directly — the static compose files carry none of those three things (§9).
 - `env.example` — all configuration, copy to `.env`.
 - `docker-compose.qa.yml` — a self-contained QA stack (hardcoded creds, plain HTTP, a test asset
   server) used by the `qa/` browser tests. **Not for production.**
