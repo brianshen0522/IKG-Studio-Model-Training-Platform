@@ -72,8 +72,12 @@ services:
   #
   # Data was copied by deploy/migrate-minio-to-seaweedfs.sh and verified
   # byte-for-byte by SHA-256 read back through this server, then reconciled
-  # against app.artifacts. ../data/minio is kept as the rollback path and is
-  # still the only copy of the pre-migration artifacts (AGENTS.md rule 3).
+  # against app.artifacts. ../data/minio has since been deleted; rolling back
+  # to MinIO now means restoring minio-data.tar.gz from the backup directory
+  # and loading minio-image.tar, because that image can no longer be pulled.
+  # Before deleting it, every one of the 1573 rows in app.artifacts was
+  # confirmed readable from this server and a sample was downloaded and checked
+  # against its stored SHA-256.
   minio:
     image: chrislusf/seaweedfs:3.68
     restart: unless-stopped
@@ -127,7 +131,7 @@ services:
     networks: [internal-network]
     env_file: [.env]
     depends_on:
-      postgres: { condition: service_healthy }
+      postgres: {condition: service_healthy}
     command:
       - sh
       - -c
@@ -147,7 +151,7 @@ services:
       POSTGRES_USER: backend_role
       POSTGRES_PASSWORD: ${BACKEND_DB_PASSWORD}
     depends_on:
-      migrate: { condition: service_completed_successfully }
+      migrate: {condition: service_completed_successfully}
     command: ["node_modules/.bin/tsx", "scripts/create-admin.ts"]
     restart: "no"
 
@@ -163,10 +167,10 @@ services:
       POSTGRES_USER: backend_role
       POSTGRES_PASSWORD: ${BACKEND_DB_PASSWORD}
     depends_on:
-      postgres: { condition: service_healthy }
-      redis: { condition: service_healthy }
-      minio: { condition: service_healthy }
-      bootstrap: { condition: service_completed_successfully }
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      minio: {condition: service_healthy}
+      bootstrap: {condition: service_completed_successfully}
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 10s
@@ -183,7 +187,7 @@ services:
     restart: unless-stopped
     networks: [internal-network]
     depends_on:
-      backend: { condition: service_healthy }
+      backend: {condition: service_healthy}
 
   # TLS termination (self-signed cert, HTTP/2) — the ONLY container that
   # publishes a host port. See nginx/tls-proxy.conf + nginx/tls-entrypoint.sh.
@@ -199,7 +203,7 @@ services:
     volumes:
       - tls-certs:/etc/nginx/tls
     depends_on:
-      web: { condition: service_started }
+      web: {condition: service_started}
 
   scheduler:
     build:
@@ -220,8 +224,8 @@ services:
       # datasets whose folder was deleted from disk. 0 disables.
       DATASET_REINDEX_INTERVAL_S: ${DATASET_REINDEX_INTERVAL_S:-3600}
     depends_on:
-      postgres: { condition: service_healthy }
-      migrate: { condition: service_completed_successfully }
+      postgres: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
 
   training-worker:
     build:
@@ -254,9 +258,9 @@ services:
     volumes:
       - yolo-weights:/opt/yolo-weights
     depends_on:
-      redis: { condition: service_healthy }
-      minio: { condition: service_healthy }
-      migrate: { condition: service_completed_successfully }
+      redis: {condition: service_healthy}
+      minio: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
 
   dataset-worker:
     build:
@@ -272,9 +276,9 @@ services:
       POSTGRES_PASSWORD: ${WORKER_DB_PASSWORD}
       WORKER_KEY: dataset-worker-1
     depends_on:
-      redis: { condition: service_healthy }
-      minio: { condition: service_healthy }
-      migrate: { condition: service_completed_successfully }
+      redis: {condition: service_healthy}
+      minio: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
 
 volumes:
   yolo-weights:
