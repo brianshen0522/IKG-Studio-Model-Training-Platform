@@ -32,6 +32,13 @@ export class MinioService implements OnModuleInit {
       accessKey: process.env.MINIO_ACCESS_KEY ?? 'minioadmin',
       secretKey: process.env.MINIO_SECRET_KEY ?? 'minioadmin',
       useSSL: (process.env.MINIO_SECURE ?? 'false') === 'true',
+      // Set explicitly because SeaweedFS answers GetBucketLocation with a document that
+      // carries no region value. Without this the SDK looks the region up on first use,
+      // stores undefined, and then throws `region should be of type "string"` when it
+      // signs a presigned URL — so artifact downloads failed while uploads, listing and
+      // direct reads all worked. MinIO happened to return a region here, which is why
+      // nothing needed it before.
+      region: process.env.MINIO_REGION ?? 'us-east-1',
     });
   }
 
