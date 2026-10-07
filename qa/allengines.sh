@@ -26,10 +26,15 @@ for eng in $ENGINES; do
   # and skipped everything it had already created, despite the comment above.
   rm -rf "$ROOT/data/qa-postgres" "$ROOT/data/qa-redis" "$ROOT/data/qa-objectstore"
   $DC up -d >/dev/null 2>&1
-  for i in $(seq 1 40); do st=$(docker inspect -f '{{.State.Health.Status}}' ikg-studio-model-training-platform-qa-backend-1 2>/dev/null); [ "$st" = "healthy" ] && break; sleep 2; done
+  for i in $(seq 1 40); do
+    st=$(docker inspect -f '{{.State.Health.Status}}' ikg-studio-model-training-platform-qa-backend-1 2>/dev/null)
+    [ "$st" = "healthy" ] && break
+    sleep 2
+  done
   $DC exec -T postgres psql -U migration_role -d model_trainer -c "UPDATE app.system_settings SET value='true'::jsonb WHERE setting_key IN ('model_download_allow_http','model_download_allow_private');" >/dev/null 2>&1
-  QA_ENGINE=$eng node "$ROOT/qa/run.mjs" > "/tmp/qa_$eng.log" 2>&1
-  passes=$(grep -ac '^  ✓' "/tmp/qa_$eng.log"); fails=$(grep -ac '^  ✗' "/tmp/qa_$eng.log")
+  QA_ENGINE=$eng node "$ROOT/qa/run.mjs" >"/tmp/qa_$eng.log" 2>&1
+  passes=$(grep -ac '^  ✓' "/tmp/qa_$eng.log")
+  fails=$(grep -ac '^  ✗' "/tmp/qa_$eng.log")
   echo "RESULT $eng: passes=$passes fails=$fails"
   grep -aE '^  ✗' "/tmp/qa_$eng.log" | sed 's/^/    FAIL:/'
 done

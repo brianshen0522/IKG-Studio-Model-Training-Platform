@@ -31,9 +31,9 @@ if [ -z "${DATA_ROOT:-}" ]; then
 fi
 
 GPU_ARGS=""
-if [ "${DEPLOY_FORCE_CPU:-0}" != "1" ] \
-  && command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1 \
-  && docker info 2>/dev/null | grep -qi nvidia; then
+if [ "${DEPLOY_FORCE_CPU:-0}" != "1" ] &&
+  command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1 &&
+  docker info 2>/dev/null | grep -qi nvidia; then
   echo "up.sh: NVIDIA GPU detected — applying docker-compose.gpu.yml" >&2
   GPU_ARGS="-f docker-compose.gpu.yml"
   if ! grep -qE '^TRAINING_DEVICE=' .env 2>/dev/null; then
@@ -88,7 +88,7 @@ OVERLAY=docker-compose.data-roots.yml
     done
     IFS=$OLD_IFS
   done
-} > "$OVERLAY"
+} >"$OVERLAY"
 
 docker compose --project-name "$PROJECT_NAME" -f docker-compose.yml $GPU_ARGS -f "$OVERLAY" "$@"
 STATUS=$?
@@ -115,29 +115,37 @@ if [ "$STATUS" -eq 0 ] && [ "${1:-}" = "up" ]; then
         # `--scale svc=N` selects a service as surely as a bare name does.
         saw_service=1
         case $arg in
-          training-worker=*) CHECK_GPU=1; break ;;
-          *) CHECK_GPU=0 ;;
+        training-worker=*)
+          CHECK_GPU=1
+          break
+          ;;
+        *) CHECK_GPU=0 ;;
         esac
       fi
       pending=""
       continue
     fi
     case $arg in
-      --scale) pending=scale ;;
-      --scale=training-worker=*)
-        saw_service=1
-        CHECK_GPU=1
-        break ;;
-      --scale=*)
-        saw_service=1
-        CHECK_GPU=0 ;;
-      # Options that take a separate value, which must not be read as a service name.
-      --exit-code-from|--timeout|-t|--project-name|-p|--file|-f)
-        pending=other ;;
-      -*) ;;
-      *) saw_service=1
-         [ "$arg" = "training-worker" ] && CHECK_GPU=1 && break
-         CHECK_GPU=0 ;;
+    --scale) pending=scale ;;
+    --scale=training-worker=*)
+      saw_service=1
+      CHECK_GPU=1
+      break
+      ;;
+    --scale=*)
+      saw_service=1
+      CHECK_GPU=0
+      ;;
+    # Options that take a separate value, which must not be read as a service name.
+    --exit-code-from | --timeout | -t | --project-name | -p | --file | -f)
+      pending=other
+      ;;
+    -*) ;;
+    *)
+      saw_service=1
+      [ "$arg" = "training-worker" ] && CHECK_GPU=1 && break
+      CHECK_GPU=0
+      ;;
     esac
   done
   [ "$saw_service" -eq 0 ] && CHECK_GPU=1
@@ -147,16 +155,16 @@ if [ "$CHECK_GPU" -eq 1 ]; then
   echo "up.sh: checking training-worker GPU support (first torch import can take a while)…" >&2
   # Spinner so the wait doesn't look like a hang.
   docker compose --project-name "$PROJECT_NAME" -f docker-compose.yml $GPU_ARGS -f "$OVERLAY" exec -T training-worker \
-    uv run --no-sync python -c "import torch; print(torch.cuda.is_available())" 2>/dev/null > /tmp/up-cuda-check &
+    uv run --no-sync python -c "import torch; print(torch.cuda.is_available())" 2>/dev/null >/tmp/up-cuda-check &
   CHECK_PID=$!
   i=0
   while kill -0 "$CHECK_PID" 2>/dev/null; do
     i=$((i + 1))
     case $((i % 4)) in
-      0) c='|' ;;
-      1) c='/' ;;
-      2) c='-' ;;
-      3) c='\\' ;;
+    0) c='|' ;;
+    1) c='/' ;;
+    2) c='-' ;;
+    3) c='\\' ;;
     esac
     printf '\rup.sh: checking GPU support… %s' "$c" >&2
     sleep 0.1
