@@ -30,28 +30,42 @@ services:
       timeout: 3s
       retries: 20
 
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
+  # Same server and flags as production, so QA exercises the store the
+  # deployment actually runs. This was minio/minio:latest, which can no longer
+  # be pulled at all — QA could only start on a host that still had the image
+  # cached.
+  #
+  # No identity file here, unlike production: that makes the S3 gateway accept
+  # any credentials, which is wrong for a deployment but fine for a throwaway
+  # QA stack whose data directory is rebuilt per run. The services below still
+  # pass keys, they are simply not checked.
+  objectstore:
+    image: chrislusf/seaweedfs:3.68
+    # -s3.port=9000 so S3_ENDPOINT=objectstore:9000 matches production.
+    # volumePreallocate=false keeps volumes sparse; with the default on, each
+    # one reserves its full size limit up front.
+    command: >
+      server -s3 -dir=/data
+      -s3.port=9000
+      -master.volumePreallocate=false
     networks: [qa]
-    ports:
-      - "9101:9001"
     volumes:
-      - ../data/qa-minio:/data
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: changeme
+      - ../data/qa-objectstore:/data
     healthcheck:
-      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      # /status via wget: this image ships no curl.
+      test:
+        - CMD-SHELL
+        - >-
+          wget -q -O /dev/null http://127.0.0.1:9000/status || exit 1
       interval: 4s
       timeout: 3s
-      retries: 20
+      retries: 30
 
   migrate:
     image: postgres:16-alpine
     networks: [qa]
     depends_on:
-      postgres: { condition: service_healthy }
+      postgres: {condition: service_healthy}
     volumes:
       - ../database/migrations:/migrations:ro
     environment:
@@ -63,8 +77,14 @@ services:
     command:
       - |
         set -e
-        for f in /migrations/[0-9]*.sql; do echo "applying $$(basename $$f)"; psql -v ON_ERROR_STOP=1 -q -f "$$f"; done
-        psql -v ON_ERROR_STOP=1 -c "ALTER ROLE backend_role LOGIN PASSWORD 'changeme'; ALTER ROLE worker_role LOGIN PASSWORD 'changeme'; ALTER ROLE scheduler_role LOGIN PASSWORD 'changeme';"
+        for f in /migrations/[0-9]*.sql; do
+          echo "applying $$(basename $$f)"
+          psql -v ON_ERROR_STOP=1 -q -f "$$f"
+        done
+        psql -v ON_ERROR_STOP=1 \
+          -c "ALTER ROLE backend_role LOGIN PASSWORD 'changeme';" \
+          -c "ALTER ROLE worker_role LOGIN PASSWORD 'changeme';" \
+          -c "ALTER ROLE scheduler_role LOGIN PASSWORD 'changeme';"
         echo "MIGRATIONS DONE"
     restart: "no"
 
@@ -74,7 +94,7 @@ services:
       dockerfile: deploy/Dockerfile.api
     networks: [qa]
     depends_on:
-      migrate: { condition: service_completed_successfully }
+      migrate: {condition: service_completed_successfully}
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -92,10 +112,10 @@ services:
       dockerfile: deploy/Dockerfile.api
     networks: [qa]
     depends_on:
-      postgres: { condition: service_healthy }
-      redis: { condition: service_healthy }
-      minio: { condition: service_healthy }
-      bootstrap: { condition: service_completed_successfully }
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      objectstore: {condition: service_healthy}
+      bootstrap: {condition: service_completed_successfully}
     environment:
       NODE_ENV: production
       PORT: "3000"
@@ -105,11 +125,11 @@ services:
       POSTGRES_USER: backend_role
       POSTGRES_PASSWORD: changeme
       REDIS_URL: redis://redis:6379
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: changeme
-      MINIO_BUCKET: artifacts
-      MINIO_SECURE: "false"
+      S3_ENDPOINT: objectstore:9000
+      S3_ACCESS_KEY: qakey
+      S3_SECRET_KEY: changeme
+      S3_BUCKET: artifacts
+      S3_SECURE: "false"
       SESSION_SECRET: qa-session-secret
       COOKIE_SECURE: "false"
       WEBAUTHN_RP_ID: localhost
@@ -120,6 +140,8 @@ services:
       - ./qa-data/training-datasets:/data/training-datasets:ro
       - ./qa-data/models:/data/models:ro
     healthcheck:
+      # One line on purpose: this is JS, and YAML's folding styles insert a
+      # space at each fold, which would change the string.
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 6s
       timeout: 4s
@@ -131,9 +153,9 @@ services:
       dockerfile: deploy/Dockerfile.dataset-worker
     networks: [qa]
     depends_on:
-      migrate: { condition: service_completed_successfully }
-      redis: { condition: service_healthy }
-      minio: { condition: service_healthy }
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      objectstore: {condition: service_healthy}
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -141,11 +163,11 @@ services:
       POSTGRES_USER: worker_role
       POSTGRES_PASSWORD: changeme
       REDIS_URL: redis://redis:6379
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: changeme
-      MINIO_BUCKET: artifacts
-      MINIO_SECURE: "false"
+      S3_ENDPOINT: objectstore:9000
+      S3_ACCESS_KEY: qakey
+      S3_SECRET_KEY: changeme
+      S3_BUCKET: artifacts
+      S3_SECURE: "false"
       WORKER_KEY: dataset-worker-1
     volumes:
       - ./qa-data/source-datasets:/data/source-datasets:ro
@@ -158,9 +180,9 @@ services:
       dockerfile: deploy/Dockerfile.training-worker
     networks: [qa]
     depends_on:
-      migrate: { condition: service_completed_successfully }
-      redis: { condition: service_healthy }
-      minio: { condition: service_healthy }
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      objectstore: {condition: service_healthy}
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -168,11 +190,11 @@ services:
       POSTGRES_USER: worker_role
       POSTGRES_PASSWORD: changeme
       REDIS_URL: redis://redis:6379
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: changeme
-      MINIO_BUCKET: artifacts
-      MINIO_SECURE: "false"
+      S3_ENDPOINT: objectstore:9000
+      S3_ACCESS_KEY: qakey
+      S3_SECRET_KEY: changeme
+      S3_BUCKET: artifacts
+      S3_SECURE: "false"
       WORKER_KEY: training-worker-1
       TRAINING_DEVICE: cpu
       WORKER_HEARTBEAT_INTERVAL_S: "20"
@@ -189,7 +211,7 @@ services:
     ports:
       - "8088:80"
     depends_on:
-      backend: { condition: service_healthy }
+      backend: {condition: service_healthy}
 
   scheduler:
     build:
@@ -197,8 +219,8 @@ services:
       dockerfile: deploy/Dockerfile.scheduler
     networks: [qa]
     depends_on:
-      migrate: { condition: service_completed_successfully }
-      postgres: { condition: service_healthy }
+      migrate: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -210,8 +232,9 @@ services:
       MAX_TRAINING_ATTEMPTS: "3"
       RETRY_BACKOFF_BASE_S: "20"
 
-  # Serves the base model .pt on the internal network so model-ingest can be tested
-  # deterministically (no external network). Requires model_download_allow_http/private=true.
+  # Serves the base model .pt on the internal network so model-ingest can be
+  # tested deterministically (no external network). Requires
+  # model_download_allow_http/private=true.
   assets:
     image: nginx:alpine
     networks: [qa]

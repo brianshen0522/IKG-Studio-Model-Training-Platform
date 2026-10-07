@@ -1,7 +1,7 @@
 # Model Training Platform — production stack.
 #
 # Real service topology (matches the code, unlike the earlier draft):
-#   infra:    postgres, redis, minio
+#   infra:    postgres, redis, objectstore
 # init: migrate (schema + role passwords), bootstrap (first admin) [one-shot]
 # runtime: backend, web, scheduler, training-worker, dataset-worker There is NO
 # separate benchmark-worker / model-ingest-worker: benchmark runs inside
@@ -38,7 +38,10 @@ services:
       POSTGRES_USER: ${POSTGRES_MIGRATION_USER}
       POSTGRES_PASSWORD: ${POSTGRES_MIGRATION_PASSWORD}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_MIGRATION_USER} -d ${POSTGRES_DB}"]
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -U ${POSTGRES_MIGRATION_USER} -d ${POSTGRES_DB}
       interval: 5s
       timeout: 3s
       retries: 20
@@ -62,23 +65,21 @@ services:
   # irrecoverable. SeaweedFS is pullable, which is the whole reason for the
   # change.
   #
-  # The service name and the MINIO_* variables are deliberately unchanged. They
-  # are read in 16 places and renaming them is a one-line sed, so this is not
-  # about effort: every consumer falls back to `?? 'minioadmin'` when its
-  # variable is missing, so a half-finished rename would not fail loudly — it
-  # would quietly authenticate with the wrong credentials against artifact
-  # storage. Renaming them to S3_* is a separate, independently revertable
-  # commit. Until it lands, these names are inaccurate.
+  # The service and its variables are named for the role, not the product: the
+  # endpoint moved once already and the names should not have to move with it.
+  # The S3_* variables have no defaults in any consumer. They used to fall
+  # back to 'minioadmin', which meant a missed rename would start up and
+  # quietly use the wrong credentials instead of failing.
   #
-  # Data was copied by deploy/migrate-minio-to-seaweedfs.sh and verified
-  # byte-for-byte by SHA-256 read back through this server, then reconciled
-  # against app.artifacts. ../data/minio has since been deleted; rolling back
-  # to MinIO now means restoring minio-data.tar.gz from the backup directory
-  # and loading minio-image.tar, because that image can no longer be pulled.
-  # Before deleting it, every one of the 1573 rows in app.artifacts was
-  # confirmed readable from this server and a sample was downloaded and checked
-  # against its stored SHA-256.
-  minio:
+  # Data was copied by a one-shot migration script (deleted once it had run;
+  # see git history) and verified byte-for-byte by SHA-256 read back through
+  # this server, then reconciled against app.artifacts. The old data directory
+  # has since been deleted; rolling back means restoring minio-data.tar.gz from
+  # the backup directory and loading minio-image.tar, because that image can no
+  # longer be pulled. Before deleting it, every one of the 1573 rows in
+  # app.artifacts was confirmed readable from this server and a sample was
+  # downloaded and checked against its stored SHA-256.
+  objectstore:
     image: chrislusf/seaweedfs:3.68
     restart: unless-stopped
     # volumePreallocate=false is what keeps this from reserving the whole disk:
@@ -92,11 +93,11 @@ services:
     # below the size the existing volume files were created at makes the master
     # refuse to load them; the filer then never starts and the S3 gateway waits
     # on it forever, so port 8333 never opens. That mistake is what took
-    # artifact storage down once already. -s3.port=9000 instead of the 8333
-    # default so MINIO_ENDPOINT=minio:9000 keeps working untouched. Every
-    # service reads that endpoint from .env, and leaving the port alone means
-    # the cutover changes one service definition rather than the configuration
-    # of backend, scheduler and both workers at the same time.
+    # artifact storage down once already.
+    #
+    # -s3.port=9000 rather than the 8333 default, because every service reads
+    # S3_ENDPOINT=objectstore:9000. Leaving the port alone meant the cutover
+    # touched one service definition instead of four services' configuration.
     command: >
       server -s3 -dir=/data
       -s3.config=/etc/seaweedfs/s3.json
@@ -115,7 +116,10 @@ services:
       # answer 403 once an identity file is configured, so the obvious probe
       # would report unhealthy forever while the server was serving normally.
       # Loading existing volumes takes ~30s, hence the retry budget.
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9000/status || exit 1"]
+      test:
+        - CMD-SHELL
+        - >-
+          wget -q -O /dev/null http://127.0.0.1:9000/status || exit 1
       interval: 5s
       timeout: 3s
       retries: 30
@@ -135,7 +139,9 @@ services:
     command:
       - sh
       - -c
-      - node_modules/.bin/tsx packages/db/src/migrate.ts && node_modules/.bin/tsx scripts/set-db-roles.ts
+      - >-
+        node_modules/.bin/tsx packages/db/src/migrate.ts &&
+        node_modules/.bin/tsx scripts/set-db-roles.ts
     restart: "no"
 
   # One-shot: create the first admin if none exists (idempotent). Uses
@@ -169,9 +175,11 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
-      minio: {condition: service_healthy}
+      objectstore: {condition: service_healthy}
       bootstrap: {condition: service_completed_successfully}
     healthcheck:
+      # One line on purpose: this is JS, and YAML's folding styles insert a
+      # space at each fold, which would change the string.
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 10s
       timeout: 4s
@@ -259,7 +267,7 @@ services:
       - yolo-weights:/opt/yolo-weights
     depends_on:
       redis: {condition: service_healthy}
-      minio: {condition: service_healthy}
+      objectstore: {condition: service_healthy}
       migrate: {condition: service_completed_successfully}
 
   dataset-worker:
@@ -277,7 +285,7 @@ services:
       WORKER_KEY: dataset-worker-1
     depends_on:
       redis: {condition: service_healthy}
-      minio: {condition: service_healthy}
+      objectstore: {condition: service_healthy}
       migrate: {condition: service_completed_successfully}
 
 volumes:

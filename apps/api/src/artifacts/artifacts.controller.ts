@@ -60,7 +60,7 @@ export class ArtifactsController {
     const { url, filename, mime_type } = await this.service.presignedUrl(id, false);
     try {
       // No extra query params: a presigned URL's signature covers its query string, and
-      // appending a response-content-disposition override after signing makes MinIO
+      // appending a response-content-disposition override after signing makes the server
       // answer 403 SignatureDoesNotMatch. The attachment header is set on the proxy
       // response below instead, which achieves the same browser download.
       const response = await fetch(url);

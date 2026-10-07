@@ -18,7 +18,7 @@ model × dataset combinations.
   - *Training datasets*: either **built** by merging + splitting source datasets into a YOLO layout
     (train/val/test + `data.yaml`), or **registered** by pointing at an already-prepared YOLO directory.
 - **Models** — discovered by scanning each dataset type's model root, or produced by a training run.
-  `best.pt` is stored both as an immutable artifact (MinIO) and copied into the model root; `last.pt`
+  `best.pt` is stored both as an immutable artifact (object store) and copied into the model root; `last.pt`
   is discarded after training.
 - **Training** — submit a job (base model + training dataset + hyperparameters), it queues to a
   worker, runs Ultralytics YOLO training, and produces charts/logs/metrics as artifacts.
@@ -60,7 +60,7 @@ qa/              Playwright browser smoke tests (the only test suite in this rep
 
 **Storage model**: PostgreSQL is the single source of truth. Redis is disposable (queue +
 coordination + cache only — safe to flush and rebuild). Binaries (models, datasets, artifacts) live
-on disk / MinIO; Postgres only stores metadata.
+on disk / the object store; Postgres only stores metadata.
 
 **No mocks, no ORM auto-sync, no client-side authorization**: the backend is the authority for every
 state transition; the frontend renders API-provided enums, never infers status from strings.
@@ -79,7 +79,7 @@ state transition; the frontend renders API-provided enums, never infers status f
 | ML workers | Python + uv + Ultralytics YOLO |
 | Monorepo | pnpm workspaces + Turborepo |
 | DB | PostgreSQL (single `app` schema) |
-| Object storage | MinIO (artifacts only) |
+| Object storage | SeaweedFS, S3 API (artifacts only) |
 
 First-phase task types: **OBB + DETECT** only (schema reserves five, only two are wired up).
 
@@ -87,7 +87,7 @@ First-phase task types: **OBB + DETECT** only (schema reserves five, only two ar
 
 ## Quick start (local dev, no Docker)
 
-Requires **Node 22** (see `.nvmrc`) and **pnpm 9.15.0**, plus a reachable Postgres/Redis/MinIO
+Requires **Node 22** (see `.nvmrc`) and **pnpm 9.15.0**, plus a reachable Postgres/Redis/object store
 (point env vars at them — see `deploy/env.example` for the full variable list).
 
 ```sh
@@ -121,7 +121,7 @@ bash qa/allengines.sh            # chromium/firefox/webkit, each against a fresh
 
 ## Quick start (full stack, Docker)
 
-This is the realistic way to run everything (3 apps + workers + postgres/redis/minio/nginx +
+This is the realistic way to run everything (3 apps + workers + postgres/redis/objectstore/nginx +
 tls-proxy):
 
 ```sh

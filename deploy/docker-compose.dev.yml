@@ -7,7 +7,13 @@ services:
       - ../packages:/app/packages:ro
     command: nest start --watch
 
-  nginx:
+  # Serve the locally built SPA instead of the copy baked into the image, so a
+  # `pnpm --filter web build` shows up without rebuilding the container.
+  #
+  # This block said `nginx` before, which is not a service in this project (the
+  # SPA container is `web`). Compose rejects the whole file for an unknown
+  # service, so `-f docker-compose.dev.yml` could never start anything.
+  web:
     volumes:
       - ../apps/web/dist:/usr/share/nginx/html:ro
 
@@ -19,12 +25,14 @@ services:
     ports:
       - "6379:6379"
 
-  minio:
+  # Only the S3 API. 9001 was MinIO's console; SeaweedFS has no equivalent and
+  # nothing listens there.
+  objectstore:
     ports:
       - "9000:9000"
-      - "9001:9001"
 
-# Dev only: allow host access to infra ports (prod keeps internal-network isolated).
+# Dev only: allow host access to infra ports (prod keeps the internal-network
+# isolated).
 networks:
   internal-network:
     internal: false

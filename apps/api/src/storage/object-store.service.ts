@@ -18,7 +18,7 @@ export interface StorageStatus {
 }
 
 @Injectable()
-export class MinioService implements OnModuleInit {
+export class ObjectStoreService implements OnModuleInit {
   private client!: Client;
   private cachedUsedBytes = 0;
   private lastStatsFetchTime = 0;
@@ -26,19 +26,37 @@ export class MinioService implements OnModuleInit {
   constructor(@Inject(DB_PROVIDER) private readonly db: Kysely<Database>) {}
 
   onModuleInit() {
+    // Credentials have no default on purpose. They used to fall back to
+    // 'minioadmin', which meant a missing or misspelled variable did not fail:
+    // the service started and authenticated with the wrong credentials against
+    // artifact storage. Failing here instead makes a misconfiguration obvious
+    // at boot.
+    const required = (name: string): string => {
+      const value = process.env[name];
+      if (!value) {
+        throw new Error(`object store is not configured: ${name} unset`);
+      }
+      return value;
+    };
+    const endpoint = required('S3_ENDPOINT');
+    const accessKey = required('S3_ACCESS_KEY');
+    const secretKey = required('S3_SECRET_KEY');
+
+    const [host, port] = endpoint.split(':');
     this.client = new Client({
-      endPoint: process.env.MINIO_ENDPOINT?.split(':')[0] ?? 'minio',
-      port: Number(process.env.MINIO_ENDPOINT?.split(':')[1] ?? 9000),
-      accessKey: process.env.MINIO_ACCESS_KEY ?? 'minioadmin',
-      secretKey: process.env.MINIO_SECRET_KEY ?? 'minioadmin',
-      useSSL: (process.env.MINIO_SECURE ?? 'false') === 'true',
-      // Set explicitly because SeaweedFS answers GetBucketLocation with a document that
-      // carries no region value. Without this the SDK looks the region up on first use,
-      // stores undefined, and then throws `region should be of type "string"` when it
-      // signs a presigned URL — so artifact downloads failed while uploads, listing and
-      // direct reads all worked. MinIO happened to return a region here, which is why
-      // nothing needed it before.
-      region: process.env.MINIO_REGION ?? 'us-east-1',
+      endPoint: host,
+      port: Number(port || 9000),
+      accessKey,
+      secretKey,
+      useSSL: (process.env.S3_SECURE ?? 'false') === 'true',
+      // Set explicitly because SeaweedFS answers GetBucketLocation with a
+      // document that carries no region value. Without this the SDK looks the
+      // region up on first use, stores undefined, and then throws `region
+      // should be of type "string"` when it signs a presigned URL — so
+      // artifact downloads failed while uploads, listing and direct reads all
+      // worked. MinIO happened to return one here, which is why nothing
+      // needed it before.
+      region: process.env.S3_REGION ?? 'us-east-1',
     });
   }
 
@@ -80,7 +98,7 @@ export class MinioService implements OnModuleInit {
     const limitRow = await this.db
       .selectFrom('system_settings')
       .select('value')
-      .where('setting_key', '=', 'storage_minio_limit_bytes')
+      .where('setting_key', '=', 'storage_limit_bytes')
       .executeTakeFirst();
 
     const thresholdRow = await this.db

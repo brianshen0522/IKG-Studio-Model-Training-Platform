@@ -15,7 +15,7 @@ Everything runs in Docker via `docker compose`. This guide covers **macOS, Linux
 |---|---|---|
 | `postgres` | source of truth (all state) | internal only |
 | `redis` | job queue (streams) + sessions | internal only |
-| `minio` | artifact object store | internal only |
+| `objectstore` | artifact object store (SeaweedFS, S3 API) | internal only |
 | `migrate` *(one-shot)* | applies DB migrations + injects role passwords | — |
 | `bootstrap` *(one-shot)* | creates the first admin (idempotent) | — |
 | `backend` | NestJS API (`backend_role`) | internal only |
@@ -56,7 +56,7 @@ Edit `.env` and set **every `CHANGE_ME_*`** value:
 
 - **Database** — one password per least-privilege role:
   `POSTGRES_MIGRATION_PASSWORD`, `BACKEND_DB_PASSWORD`, `WORKER_DB_PASSWORD`, `SCHEDULER_DB_PASSWORD`.
-- **MinIO** — `MINIO_SECRET_KEY`. **Session** — `SESSION_SECRET` (e.g. `openssl rand -hex 32`).
+- **Object store** — `S3_SECRET_KEY`. **Session** — `SESSION_SECRET` (e.g. `openssl rand -hex 32`).
 - **First admin** — `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD` (≥ 12 chars).
 - **Storage root(s)** — one or more host paths (comma-separated), each bind-mounted at the same
   absolute path into every service that needs it (create them first, writable by the container
@@ -205,9 +205,9 @@ git pull
 `migrate` only applies migrations not already in `app.schema_migrations`, and `bootstrap` skips
 when an admin exists — both are safe to re-run on every deploy.
 
-**Data & backups:** state lives in the `postgres-data`, `redis-data`, `minio-data` Docker volumes
+**Data & backups:** state lives in the `postgres-data`, `redis-data`, `objectstore-data` Docker volumes
 plus the bind-mounted storage roots. A plain `up`/`down` (without `-v`) preserves everything. Back
-up with `pg_dump` (Postgres) + the MinIO bucket + the model/dataset roots. **Never** run
+up with `pg_dump` (Postgres) + the artifact bucket + the model/dataset roots. **Never** run
 `docker compose down -v` in production — it deletes the volumes.
 
 **Scale workers:** `./up.sh up -d --scale dataset-worker=2 --scale training-worker=2`

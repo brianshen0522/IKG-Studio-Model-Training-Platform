@@ -31,22 +31,22 @@
 - `packages/api-client` 與其他 lib 不同：`main`/`types` 直接指向 **`src/index.ts`**（免 build），僅 web 消費。
 
 ## 基礎設施 / 本地開發
-- 全棧（3 app + workers + postgres/redis/minio/nginx + tls-proxy）跑 Docker：`cd deploy && ./up.sh up -d --build`（wrapper：展開 `DATA_ROOT` 成 bind mount、自動偵測 GPU 疊 `docker-compose.gpu.yml`；**一律用 `up.sh`，不要直接呼叫 `docker compose`**，靜態 compose 檔沒有掛載規則）。強制 CPU：`DEPLOY_FORCE_CPU=1 ./up.sh up -d --build`。
+- 全棧（3 app + workers + postgres/redis/objectstore/nginx + tls-proxy）跑 Docker：`cd deploy && ./up.sh up -d --build`（wrapper：展開 `DATA_ROOT` 成 bind mount、自動偵測 GPU 疊 `docker-compose.gpu.yml`；**一律用 `up.sh`，不要直接呼叫 `docker compose`**，靜態 compose 檔沒有掛載規則）。強制 CPU：`DEPLOY_FORCE_CPU=1 ./up.sh up -d --build`。
 - `web` 已無對外 port，唯一對外容器是 `tls-proxy`（TLS termination + HTTP/2，自簽憑證，見 `deploy/README.md` §7）。
 - `migrate` 與 `bootstrap` 是 one-shot 服務，**每次 `up` 自動跑**，皆 idempotent，重跑無害。
 - **新增 migration 檔後必須先 build 再 recreate**：`./up.sh build migrate && ./up.sh up -d --force-recreate migrate`。migrate 是從 `Dockerfile.api` 把 `database/migrations/` **COPY 進 image**（不是 bind mount），只 `--force-recreate` 會拿舊 image 重跑，log 仍印 `All migrations applied` 但新檔根本不在容器裡。以 `app.schema_migrations` 的內容為準，不要相信那行 log。
 - 設定：`cp deploy/env.example deploy/.env`，填滿所有 `CHANGE_ME_*`；`DATA_ROOT` 取代舊的四個路徑變數（可逗號分隔多路徑）。所有服務讀同一份 `.env`。
 - 5 個 least-privilege DB role（migration / backend / worker / scheduler / readonly，於 `001_initial_schema.sql` 尾段建立）；per-service 密碼由 `scripts/set-db-roles.ts` 在 `migrate` 階段注入。
-- 本機裸跑單一 app（非 Docker）需先有 postgres/redis/minio 可連，env 指過去。
+- 本機裸跑單一 app（非 Docker）需先有 postgres/redis/objectstore 可連，env 指過去。
 
 ## 不可違反的鐵則
 1. **禁止 Mock Data**：正式頁面 / API / Worker 一律用真實資料與真實後端；不得用 Timer 假裝進度或狀態。
 2. **Source Dataset 唯讀**：不得改寫 / 移動 / 刪除來源檔，不得在來源路徑產生 split 或 data.yaml，禁 Symlink。
-3. **Artifact 不可變**：只能由系統建立；不可修改 / 改名 / 覆蓋 / 由使用者刪除。Binary 存 MinIO，PG 只存 metadata。
+3. **Artifact 不可變**：只能由系統建立；不可修改 / 改名 / 覆蓋 / 由使用者刪除。Binary 存物件儲存（SeaweedFS，S3 API），PG 只存 metadata。
 4. **Audit append-only**：只能 INSERT/SELECT；任何 role（含 Admin）不可 UPDATE/DELETE（三層保護：DB 權限 + Trigger + Service）。
-5. **best.pt 雙存**：MinIO（不可變 Artifact）+ Model Root（正式模型）；**last.pt 不保留、不建 Artifact、訓練後刪除**。
+5. **best.pt 雙存**：物件儲存（不可變 Artifact）+ Model Root（正式模型）；**last.pt 不保留、不建 Artifact、訓練後刪除**。
 6. **PostgreSQL 為真相來源**：Redis 只是 Queue/協調/快取，可清空重建。
-7. **前端不碰基礎設施**：不直接存取 PostgreSQL/Redis/MinIO，不用 MinIO credential，不讀 server path；權限僅 UX，Backend 為授權權威；狀態語意來自 API Enum，不從顯示字串推斷。
+7. **前端不碰基礎設施**：不直接存取 PostgreSQL/Redis/物件儲存，不用物件儲存 credential，不讀 server path；權限僅 UX，Backend 為授權權威；狀態語意來自 API Enum，不從顯示字串推斷。
 8. **跨服務一致性**：狀態轉換用條件式 Update（帶前置狀態）；長任務走 Queue+Worker；用 Outbox + Idempotency + Reconciliation。
 
 ## 技術棧（不得擅自更換）

@@ -2,7 +2,7 @@
 
 Flow: claim execution → model_conversions QUEUED→RUNNING → real Ultralytics
 `model.export(format='openvino')` → the IR (.xml/.bin/...) is zipped → uploaded to
-MinIO as one immutable `.zip` Artifact owned by the MODEL_CONVERSION resource →
+the object store as one immutable `.zip` Artifact owned by MODEL_CONVERSION →
 RUNNING→SUCCEEDED with artifact_id. Nothing is written to the model root; all scratch
 lives under the process temp dir and is removed afterwards. Status changes are guarded
 conditional UPDATEs, mirroring trainer.py.
@@ -125,7 +125,7 @@ class Converter:
             raise ConversionError("VALIDATION", "MODEL_NOT_FOUND", "model not found")
         (name, task_type, model_path, relative_path, arch_meta, dt_model_path,
          bucket, object_key, checksum) = row
-        # Trained models keep their weights only in MinIO (the Model Root copy is
+        # Trained models keep their weights only in the object store (the Model Root copy is
         # dropped when the training job finishes), so the on-disk path is a fast path,
         # not a requirement: fall back to the BEST_MODEL artifact, downloaded into the
         # conversion scratch dir and deleted with it.

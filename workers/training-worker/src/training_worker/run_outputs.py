@@ -37,7 +37,7 @@ _EXT_MIME = {
 
 
 def upload_run_outputs(storage, run_dir: str, owner_path: str, owner_id: str) -> list[dict]:
-    """Recursively upload every file under `run_dir` to MinIO.
+    """Recursively upload every file under `run_dir` to the object store.
 
     `owner_path` is the artifact namespace segment, e.g. "training-job" or
     "benchmark-evaluation"; `owner_id` is the job/evaluation UUID. Returns artifact

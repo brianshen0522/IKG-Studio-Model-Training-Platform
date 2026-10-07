@@ -2,7 +2,7 @@ import { Inject, Injectable, HttpException } from '@nestjs/common';
 import { DB_PROVIDER } from '../database/database.module';
 import { type Kysely } from 'kysely';
 import type { Database } from '@model-trainer/db';
-import { MinioService } from '../minio/minio.service';
+import { ObjectStoreService } from '../storage/object-store.service';
 
 const err = (code: string, message: string, status: number) =>
   new HttpException({ error: { code, message, requestId: '' } }, status);
@@ -17,7 +17,7 @@ const ARTIFACT_FIELDS = [
 export class ArtifactsService {
   constructor(
     @Inject(DB_PROVIDER) private readonly db: Kysely<Database>,
-    private readonly minio: MinioService,
+    private readonly store: ObjectStoreService,
   ) {}
 
   async list(ownerTypeCode: string, ownerId: string) {
@@ -48,7 +48,7 @@ export class ArtifactsService {
       const base = a.filename.replace(/\.[^.]+$/, '');
       filename = `${base}${a.extension}`;
     }
-    const url = await this.minio.presignedGetUrl(a.bucket_name, a.object_key, 3600);
+    const url = await this.store.presignedGetUrl(a.bucket_name, a.object_key, 3600);
     return { url, filename, mime_type: a.mime_type };
   }
 }

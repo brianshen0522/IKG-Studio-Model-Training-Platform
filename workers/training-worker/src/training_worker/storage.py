@@ -9,12 +9,12 @@ class Storage:
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
         self.client = Minio(
-            cfg.minio_endpoint,
-            access_key=cfg.minio_access_key,
-            secret_key=cfg.minio_secret_key,
-            secure=cfg.minio_secure,
+            cfg.s3_endpoint,
+            access_key=cfg.s3_access_key,
+            secret_key=cfg.s3_secret_key,
+            secure=cfg.s3_secure,
         )
-        self.bucket = cfg.minio_bucket
+        self.bucket = cfg.s3_bucket
 
     def ensure_bucket(self) -> None:
         if not self.client.bucket_exists(self.bucket):

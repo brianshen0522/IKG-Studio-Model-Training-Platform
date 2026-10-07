@@ -59,7 +59,7 @@ The chain is: **Dataset Type → Source Datasets → Training Dataset → Traini
 | | What it holds |
 |---|---|
 | **PostgreSQL** | All state: types, datasets, scans, jobs, executions, models, benchmark runs, audit, notifications, settings |
-| **Object storage (MinIO)** | Artifacts: trained weights, training logs, charts, `results.csv`, benchmark outputs, OpenVINO `.zip` exports |
+| **Object storage** | Artifacts: trained weights, training logs, charts, `results.csv`, benchmark outputs, OpenVINO `.zip` exports |
 | **Mounted filesystem** | Three roots per dataset type — **dataset path** (source image folders, read-only), **model path** (`.pt` files, the "Model Root"), **training dataset path** (built / registered YOLO directories) |
 
 A trained checkpoint therefore exists in **two** places: as a downloadable artifact in object storage, and as a file under the type's Model Root on the server. [Section 8](#8-downloading-a-trained-model) explains how to get at both.
@@ -135,8 +135,8 @@ The top app bar contains the brand, the primary nav (**Home · Datasets · Model
 
 Two banners can appear above any page, for every signed-in user:
 
-- **Storage Usage Warning** — MinIO usage has passed `storage_warning_threshold_percent` (default 85%).
-- **Storage Limit Exceeded** — the quota in `storage_minio_limit_bytes` is full and **uploads and executions are write-blocked**. Free space by deleting unused models, conversions or benchmark artifacts.
+- **Storage Usage Warning** — object storage usage has passed `storage_warning_threshold_percent` (default 85%).
+- **Storage Limit Exceeded** — the quota in `storage_limit_bytes` is full and **uploads and executions are write-blocked**. Free space by deleting unused models, conversions or benchmark artifacts.
 
 ---
 
@@ -473,7 +473,7 @@ Grouped by category:
 - **Models** — `model_download_allow_http`, `model_download_allow_private` (both SSRF-risk toggles), `model_min_size_bytes`, `model_root`, `model_upload_max_size_bytes` (2 GiB)
 - **Datasets** — `dataset_type_max_depth` (8), `managed_dataset_root`
 - **Workers & queue** — `worker_offline_timeout_seconds` (90), `queue_wait_warning_minutes` (30)
-- **Storage** — `storage_minio_limit_bytes` (100 GiB), `storage_warning_threshold_percent` (85), `workspace_retention_hours` (24), `workspace_root`
+- **Storage** — `storage_limit_bytes` (100 GiB), `storage_warning_threshold_percent` (85), `workspace_retention_hours` (24), `workspace_root`
 
 Settings are saved **one row at a time**: edit a field and that row grows **Revert** and **Save** buttons, with an "*N* unsaved" badge in the header. Byte values get an MB/GB/TB unit selector. Secret values show as *hidden* and cannot be edited here. Changes take effect on the next operation that reads the setting.
 
@@ -574,7 +574,7 @@ The log will show `Execution lost: no heartbeat within timeout`.
 
 **A source dataset card says the folder is not on disk.** Its folder left the directory index. **Rescan** recovers it if the folder is back; otherwise **Archive** it.
 
-**"Storage Limit Exceeded" is showing.** MinIO is at its quota and new uploads and executions are blocked. Delete unused OpenVINO conversions, models or benchmark artifacts, or raise `storage_minio_limit_bytes`.
+**"Storage Limit Exceeded" is showing.** Object storage is at its quota and new uploads and executions are blocked. Delete unused OpenVINO conversions, models or benchmark artifacts, or raise `storage_limit_bytes`.
 
 **A benchmark run finished `PARTIALLY_FAILED` and I want the failed cells re-run.** There is no way to re-run a single cell. Retry re-runs the whole run and clears the metrics of the cells that succeeded before recomputing them — so either accept that, or create a new run for the failing pair.
 

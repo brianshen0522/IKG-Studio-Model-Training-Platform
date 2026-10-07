@@ -148,7 +148,7 @@ export function JobDetailModal({ id, onClose }: { id: string; onClose: () => voi
     refetchInterval: 5000,
   });
   // Multiple TRAIN_LOG rows can exist for one job: a "live" one the worker keeps
-  // overwriting in MinIO while RUNNING, plus a final one written at completion —
+  // overwriting in the object store while RUNNING, plus a final one at completion —
   // always show the most recently created row.
   const logArtifact = useMemo(
     () =>
@@ -191,7 +191,7 @@ export function JobDetailModal({ id, onClose }: { id: string; onClose: () => voi
     setLogLoading(true);
     setLogError(null);
     fetchLog();
-    // The live artifact's underlying MinIO object keeps growing while RUNNING —
+    // The live artifact's underlying object keeps growing while RUNNING —
     // re-fetch its content periodically instead of only once per artifact id.
     const iv = data && ACTIVE.includes(data.execution_status) ? setInterval(fetchLog, 3000) : null;
     return () => {

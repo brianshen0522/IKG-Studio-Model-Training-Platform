@@ -12,7 +12,7 @@ import { SystemSettingsModule } from './admin/system-settings/system-settings.mo
 import { BackupModule } from './admin/backup/backup.module';
 import { AdminWorkersModule } from './admin/workers/workers.module';
 import { BrowseModule } from './admin/browse/browse.module';
-import { MinioModule } from './minio/minio.module';
+import { ObjectStoreModule } from './storage/object-store.module';
 import { ArtifactsModule } from './artifacts/artifacts.module';
 import { SourceDatasetsModule } from './source-datasets/source-datasets.module';
 import { TrainingDatasetsModule } from './training-datasets/training-datasets.module';
@@ -31,7 +31,7 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter'
 import { RequestContextMiddleware } from './common/middleware/request-context.middleware';
 
 @Module({
-  imports: [ConfigModule, DatabaseModule, RedisModule, AuditModule, OutboxModule, AuthModule, MinioModule, ArtifactsModule, AdminUsersModule, DatasetTypesModule, SystemSettingsModule, BackupModule, AdminWorkersModule, BrowseModule, SourceDatasetsModule, TrainingDatasetsModule, ModelsModule, TrainingModule, BenchmarksModule, JobsModule, NotificationsModule, DashboardModule, EventsModule],
+  imports: [ConfigModule, DatabaseModule, RedisModule, AuditModule, OutboxModule, AuthModule, ObjectStoreModule, ArtifactsModule, AdminUsersModule, DatasetTypesModule, SystemSettingsModule, BackupModule, AdminWorkersModule, BrowseModule, SourceDatasetsModule, TrainingDatasetsModule, ModelsModule, TrainingModule, BenchmarksModule, JobsModule, NotificationsModule, DashboardModule, EventsModule],
   controllers: [HealthController, SystemController],
   providers: [
     // Idempotency first → outermost, so it captures/replays the final response envelope.

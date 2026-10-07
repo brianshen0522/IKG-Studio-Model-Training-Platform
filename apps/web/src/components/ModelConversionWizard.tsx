@@ -142,7 +142,7 @@ export function ModelConversionWizard({ model, onClose, onCreated }: Props) {
 
         <div className="version-summary" style={{ marginBottom: 12 }}>
           <div>Model: <strong>{model.name}</strong> · {model.task_type}</div>
-          <div>Output: OpenVINO IR (<code>.xml</code>/<code>.bin</code>) zipped, stored in MinIO</div>
+          <div>Output: OpenVINO IR (<code>.xml</code>/<code>.bin</code>) zipped, stored as an artifact</div>
         </div>
 
         {mutation.error && <div className="form-error">{(mutation.error as Error).message}</div>}

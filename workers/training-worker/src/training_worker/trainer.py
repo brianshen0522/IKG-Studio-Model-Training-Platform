@@ -1,7 +1,7 @@
 """Ultralytics training (doc 08 §12, §23-25; doc 07 §22-25 training model registration).
 
 Flow: claim execution → QUEUED→PREPARING→RUNNING → real Ultralytics train on CPU/GPU →
-best.pt dual-store (MinIO artifact + Model Root copy) → last.pt discarded → register a
+best.pt dual-store (stored artifact + Model Root copy) → last.pt discarded → register a
 TRAINING-source model → RUNNING→COMPLETED with result_model_id. All training_jobs status
 changes are guarded conditional UPDATEs (the Node state machine cannot be called cross-language).
 """
@@ -140,7 +140,7 @@ class Trainer:
         except Exception as e:  # noqa: BLE001
             self._fail(ctx, job_id, job_execution_id, correlation_id, "TRAINING", "TRAINING_FAILED", str(e)[:500])
         finally:
-            # Keep MinIO as the only long-term store for trained weights: wipe the run dir
+            # Keep the object store as the only long-term home for trained weights: wipe the run dir
             # and drop the Model Root copy (re-downloaded on demand for training/benchmark).
             shutil.rmtree(work_dir, ignore_errors=True)
             if model_root_path and os.path.isfile(model_root_path):
@@ -319,12 +319,12 @@ class Trainer:
                 return
 
     def _flush_log_artifact(self, job_id: str, job_execution_id: str, log_path: str) -> None:
-        """Best-effort: push the log-so-far to a fixed MinIO key (overwritten every
+        """Best-effort: push the log-so-far to a fixed object key (overwritten every
         call, not a new object each time) so the UI can show accumulated output while
         RUNNING, not just the latest progress_message line. The artifacts row for this
         key is inserted once (first flush of this run) and never updated afterwards —
         trg_artifacts_content_immutable forbids UPDATEs on content columns, but the
-        MinIO object behind a fixed key can still be overwritten freely; only the row's
+        object behind a fixed key can still be overwritten freely; only the row's
         checksum column goes stale, and nothing reads it back for verification."""
         if not os.path.isfile(log_path):
             return
@@ -341,7 +341,7 @@ class Trainer:
                 with conn.cursor() as cur:
                     # Re-runs of the same job keep the fixed live key from the previous
                     # run's artifacts row — the content is immutable (row can't be
-                    # updated) but the MinIO object behind it can. Reuse that row
+                    # updated) but the object behind it can. Reuse that row
                     # instead of blind-inserting and tripping uq_artifacts_object.
                     cur.execute(
                         "SELECT id FROM artifacts WHERE bucket_name=%s AND object_key=%s",
@@ -461,7 +461,7 @@ class Trainer:
         model.add_callback("on_train_epoch_end", _progress_flush)
 
         # Tee ultralytics' stdout/stderr to disk as it's produced (not just after
-        # train() returns) so _progress_flush can ship a growing log to MinIO for
+        # train() returns) so _progress_flush can ship a growing log to the store for
         # live viewing, in addition to the final full-content upload below.
         log_buf = _TeeToFile(log_path)
         with contextlib.redirect_stdout(log_buf), contextlib.redirect_stderr(log_buf):
@@ -495,7 +495,7 @@ class Trainer:
         # Ultralytics working name inside the run dir).
         model_fname = f"{_sanitize(ctx['name'])}.pt"
 
-        # 1) MinIO artifact (best.pt dual-store, part 1).
+        # 1) Stored artifact (best.pt dual-store, part 1).
         best_artifact_id = str(uuid.uuid4())
         key = f"artifacts/training-job/{job_id}/{best_artifact_id}/{model_fname}"
         try:
@@ -569,7 +569,7 @@ class Trainer:
         model_id = str(uuid.uuid4())
         model_full_path = os.path.join(ctx["model_root_host"], result["relative_path"])
         with self.conn.cursor() as cur:
-            # best.pt MinIO artifact record
+            # best.pt stored artifact record
             cur.execute(
                 "INSERT INTO artifacts (id, owner_type_code, owner_id, artifact_type_code, source_execution_id, "
                 "status, bucket_name, object_key, filename, mime_type, file_size_bytes, checksum, is_primary, "

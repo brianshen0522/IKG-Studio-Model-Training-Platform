@@ -5,7 +5,7 @@ import type { Database } from '@model-trainer/db';
 import { errorCode, validateExportArgs } from '@model-trainer/shared-types';
 import { AuditService } from '../audit/audit.service';
 import { OutboxService } from '../outbox/outbox.service';
-import { MinioService } from '../minio/minio.service';
+import { ObjectStoreService } from '../storage/object-store.service';
 import { createHash, randomUUID } from 'crypto';
 
 const DISPATCH_EVENT = 'job.conversion.dispatch';
@@ -65,7 +65,7 @@ export class ModelConversionsService {
     @Inject(DB_PROVIDER) private readonly db: Kysely<Database>,
     private readonly auditService: AuditService,
     private readonly outboxService: OutboxService,
-    private readonly minio: MinioService,
+    private readonly store: ObjectStoreService,
   ) {}
 
   async create(modelId: string, args: Record<string, unknown> | undefined, actor: Actor) {
@@ -162,7 +162,7 @@ export class ModelConversionsService {
   /**
    * Local exception to the "artifacts are immutable" rule (see AGENTS.md): unlike a
    * training result, an OpenVINO export is trivially reproducible by re-running the
-   * conversion, so admins may hard-delete it (MinIO object + artifacts row + the
+   * conversion, so admins may hard-delete it (stored object + artifacts row + the
    * conversion record itself). No other artifact type gets this treatment.
    */
   async remove(modelId: string, conversionId: string, actor: Actor) {
@@ -200,7 +200,7 @@ export class ModelConversionsService {
     });
 
     // Physical delete happens after the DB commit succeeds; if this fails the object
-    // is orphaned in MinIO (safe to ignore — no DB row points at it anymore).
-    if (objectKey) await this.minio.removeObject(objectKey.bucket, objectKey.key);
+    // is orphaned in the store (safe to ignore — no DB row points at it anymore).
+    if (objectKey) await this.store.removeObject(objectKey.bucket, objectKey.key);
   }
 }

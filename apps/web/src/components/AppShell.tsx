@@ -155,13 +155,13 @@ export function AppShell() {
       {storageStatus?.is_exceeded && (
         <div className="error-banner" style={{ margin: '12px 24px 0', border: '1px solid var(--danger)' }}>
           <strong>Storage Limit Exceeded (100% used)</strong>
-          <div>MinIO storage quota limit reached ({storageStatus.used_percent}% used). Uploads and executions write-blocked.</div>
+          <div>Storage quota limit reached ({storageStatus.used_percent}% used). Uploads and executions write-blocked.</div>
         </div>
       )}
       {!storageStatus?.is_exceeded && storageStatus?.is_warning && (
         <div className="warn-banner" style={{ margin: '12px 24px 0', border: '1px solid var(--warning, #f39c12)' }}>
           <strong>Storage Usage Warning</strong>
-          <div>MinIO storage usage at {storageStatus.used_percent}% (threshold: {storageStatus.warning_threshold_percent}%). Please clean up unused artifacts/models.</div>
+          <div>Storage usage at {storageStatus.used_percent}% (threshold: {storageStatus.warning_threshold_percent}%). Please clean up unused artifacts/models.</div>
         </div>
       )}
       <main className="content">

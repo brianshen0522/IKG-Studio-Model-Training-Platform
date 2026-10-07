@@ -191,7 +191,7 @@ export function ChartLightbox({
 
 /**
  * Plain-text artifact (training log, results.csv, …) shown in a window. Fetches the
- * body through the inline `/view` endpoint — no raw MinIO access from the browser.
+ * body through the inline `/view` endpoint — no raw object-store access from the browser.
  * CSV becomes a real table; other text is a log with terminal escape sequences and
  * carriage-return overwrites cleaned out.
  */

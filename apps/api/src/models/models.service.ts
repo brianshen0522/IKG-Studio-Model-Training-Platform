@@ -5,7 +5,7 @@ import type { Database, DatasetTaskType } from '@model-trainer/db';
 import { errorCode } from '@model-trainer/shared-types';
 import { AuditService } from '../audit/audit.service';
 import { OutboxService } from '../outbox/outbox.service';
-import { MinioService } from '../minio/minio.service';
+import { ObjectStoreService } from '../storage/object-store.service';
 import { createHash, randomUUID } from 'crypto';
 
 const PHASE1_TASK_TYPES: DatasetTaskType[] = ['DETECT', 'OBB'];
@@ -39,10 +39,10 @@ export class ModelsService {
     @Inject(DB_PROVIDER) private readonly db: Kysely<Database>,
     private readonly auditService: AuditService,
     private readonly outboxService: OutboxService,
-    private readonly minio: MinioService,
+    private readonly store: ObjectStoreService,
   ) {}
 
-  private readonly uploadBucket = process.env.MINIO_BUCKET ?? 'artifacts';
+  private readonly uploadBucket = process.env.S3_BUCKET ?? 'artifacts';
 
   private async assertDatasetTypeUsable(exec: Exec, datasetTypeId: string) {
     const res = await sql<{ enabled: boolean }>`
@@ -155,7 +155,7 @@ export class ModelsService {
     const correlationId = randomUUID();
     const taskId = randomUUID();
     const objectKey = `temporary/model-ingest/${taskId}/${input.original_filename}`;
-    await this.minio.putBuffer(this.uploadBucket, objectKey, file, 'application/octet-stream');
+    await this.store.putBuffer(this.uploadBucket, objectKey, file, 'application/octet-stream');
 
     try {
       return await this.db.transaction().execute(async (trx) => {
@@ -182,7 +182,7 @@ export class ModelsService {
         return row;
       });
     } catch (e) {
-      await this.minio.removeObject(this.uploadBucket, objectKey).catch(() => undefined);
+      await this.store.removeObject(this.uploadBucket, objectKey).catch(() => undefined);
       throw e;
     }
   }
@@ -295,7 +295,7 @@ export class ModelsService {
     });
 
     if (objectKeys.length > 0) {
-      await Promise.all(objectKeys.map((o) => this.minio.removeObject(o.bucket, o.key).catch(() => undefined)));
+      await Promise.all(objectKeys.map((o) => this.store.removeObject(o.bucket, o.key).catch(() => undefined)));
     }
     return result;
   }
