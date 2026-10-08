@@ -245,9 +245,14 @@ git pull                                   # do NOT ./up.sh up yet
 The script starts a temporary RustFS next to the running SeaweedFS, copies every bucket, reads each
 object back and compares SHA-256, reconciles against `app.artifacts`, and stops the temporary
 server again. It exits non-zero, with nothing cut over, if anything is missing or differs.
-SeaweedFS is only read. **Rolling back** means restoring the previous `docker-compose.yml` and
-`up.sh` from git and running `./up.sh up -d --build` again, which serves `data/seaweedfs` as before
-(anything uploaded after the cutover exists only in RustFS). Once RustFS has run clean for a while,
+SeaweedFS is only read. **Rolling back** means restoring the three SeaweedFS-era files and running
+`./up.sh up -d --build` again, which serves `data/seaweedfs` as before (anything uploaded after the
+cutover exists only in RustFS). The old `up.sh` builds its identity file from `seaweedfs-s3.json`, so
+restoring only the compose file and `up.sh` is not enough:
+```sh
+git checkout 759483b -- docker-compose.yml up.sh seaweedfs-s3.json
+./up.sh up -d --build
+``` Once RustFS has run clean for a while,
 delete `data/seaweedfs`, `deploy/seaweedfs-s3.generated.json` and `deploy/docker-compose.migration.yml`.
 
 ---
