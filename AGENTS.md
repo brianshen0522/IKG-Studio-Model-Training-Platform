@@ -43,7 +43,7 @@
 ## 不可違反的鐵則
 1. **禁止 Mock Data**：正式頁面 / API / Worker 一律用真實資料與真實後端；不得用 Timer 假裝進度或狀態。
 2. **Source Dataset 唯讀**：不得改寫 / 移動 / 刪除來源檔，不得在來源路徑產生 split 或 data.yaml，禁 Symlink。
-3. **Artifact 不可變**：只能由系統建立；不可修改 / 改名 / 覆蓋 / 由使用者刪除。Binary 存物件儲存（SeaweedFS，S3 API），PG 只存 metadata。
+3. **Artifact 不可變**：只能由系統建立；不可修改 / 改名 / 覆蓋 / 由使用者刪除。Binary 存物件儲存（RustFS，S3 API），PG 只存 metadata。
 4. **Audit append-only**：只能 INSERT/SELECT；任何 role（含 Admin）不可 UPDATE/DELETE（三層保護：DB 權限 + Trigger + Service）。
 5. **best.pt 雙存**：物件儲存（不可變 Artifact）+ Model Root（正式模型）；**last.pt 不保留、不建 Artifact、訓練後刪除**。
 6. **PostgreSQL 為真相來源**：Redis 只是 Queue/協調/快取，可清空重建。

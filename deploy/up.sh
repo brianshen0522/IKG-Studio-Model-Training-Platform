@@ -41,32 +41,6 @@ if [ "${DEPLOY_FORCE_CPU:-0}" != "1" ] &&
   fi
 fi
 
-# The object store's identity file, with the real keys substituted in. Without an
-# identity file SeaweedFS's S3 gateway authenticates nobody and accepts any credentials
-# at all, so generating this is what makes artifact storage non-public. The committed
-# template holds only placeholders; this generated file holds secrets and is gitignored.
-# Rewritten on every run so a rotated key in .env takes effect, and chmod'd to 0600
-# before the keys are written into it rather than after.
-#
-# Read with grep, the same way DATA_ROOT is read above: this script never sources .env
-# (Compose reads it directly for substitution), so $S3_ACCESS_KEY is empty here even
-# when it is set in the file. Reading it from the environment instead silently aborted
-# the first cutover attempt before Compose ever ran.
-S3_IDENTITY=seaweedfs-s3.generated.json
-S3_ACCESS_KEY=$(grep -E '^S3_ACCESS_KEY=' .env 2>/dev/null | tail -1 | cut -d= -f2-)
-S3_SECRET_KEY=$(grep -E '^S3_SECRET_KEY=' .env 2>/dev/null | tail -1 | cut -d= -f2-)
-
-if [ -z "${S3_ACCESS_KEY:-}" ] || [ -z "${S3_SECRET_KEY:-}" ]; then
-  echo "up.sh: S3_ACCESS_KEY/S3_SECRET_KEY are not set in deploy/.env" >&2
-  exit 1
-fi
-
-touch "$S3_IDENTITY"
-chmod 600 "$S3_IDENTITY"
-sed -e "s|__S3_ACCESS_KEY__|${S3_ACCESS_KEY}|" \
-  -e "s|__S3_SECRET_KEY__|${S3_SECRET_KEY}|" \
-  seaweedfs-s3.json >"$S3_IDENTITY"
-
 OVERLAY=docker-compose.data-roots.yml
 {
   echo "services:"

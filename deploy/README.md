@@ -15,7 +15,8 @@ Everything runs in Docker via `docker compose`. This guide covers **macOS, Linux
 |---|---|---|
 | `postgres` | source of truth (all state) | internal only |
 | `redis` | job queue (streams) + sessions | internal only |
-| `objectstore` | artifact object store (SeaweedFS, S3 API) | internal only |
+| `objectstore` | artifact object store (RustFS, S3 API) | internal only |
+| `objectstore-init` *(one-shot)* | hands `data/rustfs` to RustFS's uid 10001 | — |
 | `migrate` *(one-shot)* | applies DB migrations + injects role passwords | — |
 | `bootstrap` *(one-shot)* | creates the first admin (idempotent) | — |
 | `backend` | NestJS API (`backend_role`) | internal only |
@@ -56,7 +57,8 @@ Edit `.env` and set **every `CHANGE_ME_*`** value:
 
 - **Database** — one password per least-privilege role:
   `POSTGRES_MIGRATION_PASSWORD`, `BACKEND_DB_PASSWORD`, `WORKER_DB_PASSWORD`, `SCHEDULER_DB_PASSWORD`.
-- **Object store** — `S3_SECRET_KEY`. **Session** — `SESSION_SECRET` (e.g. `openssl rand -hex 32`).
+- **Object store** — `S3_ACCESS_KEY` / `S3_SECRET_KEY`; RustFS takes them as its root credentials
+  and rejects any other signature. **Session** — `SESSION_SECRET` (e.g. `openssl rand -hex 32`).
 - **First admin** — `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD` (≥ 12 chars).
 - **Storage root(s)** — one or more host paths (comma-separated), each bind-mounted at the same
   absolute path into every service that needs it (create them first, writable by the container
@@ -218,8 +220,8 @@ After changing storage or database variables, confirm what the container actuall
 docker inspect <project>-training-worker-1 --format '{{range .Config.Env}}{{println .}}{{end}}' | grep ^S3_
 ```
 
-**Data & backups:** state lives in the `postgres-data`, `redis-data`, `objectstore-data` Docker volumes
-plus the bind-mounted storage roots. A plain `up`/`down` (without `-v`) preserves everything. Back
+**Data & backups:** state lives in bind mounts under the repository's `data/` directory
+(`data/postgres`, `data/redis`, `data/rustfs` for artifacts) plus the bind-mounted storage roots. A plain `up`/`down` (without `-v`) preserves everything. Back
 up with `pg_dump` (Postgres) + the artifact bucket + the model/dataset roots. **Never** run
 `docker compose down -v` in production — it deletes the volumes.
 
@@ -229,6 +231,24 @@ lock so multiple schedulers are safe too).
 
 **Logs / health:** `./up.sh logs -f <service>`; live worker/queue health is on the
 dashboard (System Health) and Admin → Workers.
+
+**Moving an existing SeaweedFS store to RustFS.** Hosts deployed before the switch keep their
+artifacts in `data/seaweedfs`, which RustFS cannot read. Copy them across *before* the first `up`
+on the new compose file, because that `up` is the cutover:
+```sh
+git pull                                   # do NOT ./up.sh up yet
+./migrate-seaweedfs-to-rustfs.sh           # copy while the app still serves; re-runnable
+./up.sh stop backend scheduler training-worker dataset-worker
+./migrate-seaweedfs-to-rustfs.sh           # final pass, only what changed since
+./up.sh up -d --build                      # objectstore is now RustFS on data/rustfs
+```
+The script starts a temporary RustFS next to the running SeaweedFS, copies every bucket, reads each
+object back and compares SHA-256, reconciles against `app.artifacts`, and stops the temporary
+server again. It exits non-zero, with nothing cut over, if anything is missing or differs.
+SeaweedFS is only read. **Rolling back** means restoring the previous `docker-compose.yml` and
+`up.sh` from git and running `./up.sh up -d --build` again, which serves `data/seaweedfs` as before
+(anything uploaded after the cutover exists only in RustFS). Once RustFS has run clean for a while,
+delete `data/seaweedfs`, `deploy/seaweedfs-s3.generated.json` and `deploy/docker-compose.migration.yml`.
 
 ---
 
@@ -244,6 +264,9 @@ dashboard (System Health) and Admin → Workers.
   don't see that line, `docker info | grep -i nvidia` is probably empty (NVIDIA Container Toolkit
   not installed/configured). `./up.sh exec training-worker uv run python -c "import torch;
   print(torch.cuda.is_available())"` should print `True`.
+- **`objectstore` unhealthy / `dependency failed to start`** — `./up.sh logs objectstore`. The usual
+  cause is `data/rustfs` not writable by uid 10001; `objectstore-init` chowns it on every `up`, so
+  check that one exited 0 (`./up.sh ps -a objectstore-init`).
 - **Login "Session expired" / cookie not set** — confirm you're hitting `tls-proxy` on
   `WEB_HTTPS_PORT`, not `web` directly (it has no published port). `COOKIE_SECURE=true` requires
   HTTPS end-to-end, which `tls-proxy` provides.
@@ -284,6 +307,8 @@ dashboard (System Health) and Admin → Workers.
   GPU overlay when a GPU is present, and pins the project name. Use this instead of calling
   `docker compose` directly — the static compose files carry none of those three things (§9).
 - `env.example` — all configuration, copy to `.env`.
+- `migrate-seaweedfs-to-rustfs.sh` / `migrate_objects.py` — one-time artifact copy from SeaweedFS
+  to RustFS (§8). Generates `docker-compose.migration.yml` while it runs.
 - `docker-compose.qa.yml` — a self-contained QA stack (hardcoded creds, plain HTTP, a test asset
   server) used by the `qa/` browser tests. **Not for production.**
 - `Dockerfile.*` — per-service images.

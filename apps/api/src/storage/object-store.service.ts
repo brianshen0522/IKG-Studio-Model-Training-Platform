@@ -49,13 +49,12 @@ export class ObjectStoreService implements OnModuleInit {
       accessKey,
       secretKey,
       useSSL: (process.env.S3_SECURE ?? 'false') === 'true',
-      // Set explicitly because SeaweedFS answers GetBucketLocation with a
-      // document that carries no region value. Without this the SDK looks the
-      // region up on first use, stores undefined, and then throws `region
-      // should be of type "string"` when it signs a presigned URL — so
-      // artifact downloads failed while uploads, listing and direct reads all
-      // worked. MinIO happened to return one here, which is why nothing
-      // needed it before.
+      // Set explicitly so the SDK never asks the server. SeaweedFS answered
+      // GetBucketLocation with no region value; the SDK stored undefined and
+      // then threw `region should be of type "string"` when it signed a
+      // presigned URL — so artifact downloads failed while uploads, listing
+      // and direct reads all worked. RustFS does return one, but whether a
+      // download works should not depend on which S3 server is behind this.
       region: process.env.S3_REGION ?? 'us-east-1',
     });
   }

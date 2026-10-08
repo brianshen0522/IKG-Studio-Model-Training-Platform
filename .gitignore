@@ -7,9 +7,9 @@ dist/
 .env.*.local
 deploy/docker-compose.data-roots.yml
 
-# Written by deploy/up.sh: the real S3 credentials substituted into
-# seaweedfs-s3.json, so it must never reach history. Rewritten on every run.
-deploy/seaweedfs-s3.generated.json
+# Written by deploy/migrate-seaweedfs-to-rustfs.sh. Temporary, and only
+# meaningful on the host where the migration runs.
+deploy/docker-compose.migration.yml
 
 # Python
 __pycache__/

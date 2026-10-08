@@ -79,7 +79,7 @@ state transition; the frontend renders API-provided enums, never infers status f
 | ML workers | Python + uv + Ultralytics YOLO |
 | Monorepo | pnpm workspaces + Turborepo |
 | DB | PostgreSQL (single `app` schema) |
-| Object storage | SeaweedFS, S3 API (artifacts only) |
+| Object storage | RustFS, S3 API (artifacts only) |
 
 First-phase task types: **OBB + DETECT** only (schema reserves five, only two are wired up).
 

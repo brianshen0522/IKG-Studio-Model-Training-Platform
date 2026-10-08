@@ -30,36 +30,36 @@ services:
       timeout: 3s
       retries: 20
 
-  # Same server and flags as production, so QA exercises the store the
-  # deployment actually runs. This was minio/minio:latest, which can no longer
-  # be pulled at all — QA could only start on a host that still had the image
-  # cached.
-  #
-  # No identity file here, unlike production: that makes the S3 gateway accept
-  # any credentials, which is wrong for a deployment but fine for a throwaway
-  # QA stack whose data directory is rebuilt per run. The services below still
-  # pass keys, they are simply not checked.
+  # Same image and settings as production, so QA exercises the store the
+  # deployment actually runs. Unlike SeaweedFS without its identity file, RustFS
+  # checks credentials, so the keys the services below pass are real ones.
   objectstore:
-    image: chrislusf/seaweedfs:3.68
-    # -s3.port=9000 so S3_ENDPOINT=objectstore:9000 matches production.
-    # volumePreallocate=false keeps volumes sparse; with the default on, each
-    # one reserves its full size limit up front.
-    command: >
-      server -s3 -dir=/data
-      -s3.port=9000
-      -master.volumePreallocate=false
+    image: rustfs/rustfs:1.0.1
+    depends_on:
+      objectstore-init: {condition: service_completed_successfully}
     networks: [qa]
     volumes:
       - ../data/qa-objectstore:/data
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ACCESS_KEY: qakey
+      RUSTFS_SECRET_KEY: changeme
+      RUSTFS_CONSOLE_ENABLE: "false"
+      RUSTFS_OBS_LOGGER_LEVEL: warn
     healthcheck:
-      # /status via wget: this image ships no curl.
-      test:
-        - CMD-SHELL
-        - >-
-          wget -q -O /dev/null http://127.0.0.1:9000/status || exit 1
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
       interval: 4s
       timeout: 3s
       retries: 30
+
+  # RustFS runs as uid 10001; see the same service in docker-compose.yml.
+  objectstore-init:
+    image: alpine:3.20
+    command: ["chown", "10001:10001", "/data"]
+    network_mode: none
+    volumes:
+      - ../data/qa-objectstore:/data
+    restart: "no"
 
   migrate:
     image: postgres:16-alpine
