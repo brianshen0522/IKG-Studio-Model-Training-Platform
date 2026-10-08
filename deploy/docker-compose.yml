@@ -91,9 +91,11 @@ services:
       RUSTFS_VOLUMES: /data
       RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is not set in deploy/.env}
       RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY is not set in deploy/.env}
-      # Its web console would be a second way in with the same root keys, and
-      # nothing here uses it. Off, so only the S3 API on 9000 listens.
-      RUSTFS_CONSOLE_ENABLE: "false"
+      # The web console on 9001, published only through tls-proxy on
+      # S3_CONSOLE_PORT (see nginx/tls-proxy.conf). It logs in with these same
+      # root keys, so whoever has them can browse and delete any artifact there;
+      # the keys are the access control.
+      RUSTFS_CONSOLE_ENABLE: "true"
       RUSTFS_OBS_LOGGER_LEVEL: warn
     healthcheck:
       # /health answers without credentials, and this image ships curl.
@@ -199,6 +201,8 @@ services:
     networks: [public-network, internal-network]
     ports:
       - "${WEB_HTTPS_PORT:-443}:443"
+      # RustFS console, over the same TLS as the app; see nginx/tls-proxy.conf.
+      - "${S3_CONSOLE_PORT:-9001}:9001"
     volumes:
       - tls-certs:/etc/nginx/tls
     depends_on:

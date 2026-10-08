@@ -25,8 +25,8 @@ services:
     ports:
       - "6379:6379"
 
-  # Only the S3 API. RustFS's console on 9001 is disabled in docker-compose.yml,
-  # so nothing listens there.
+  # Only the S3 API. The console is already reachable through tls-proxy on
+  # S3_CONSOLE_PORT.
   objectstore:
     ports:
       - "9000:9000"

@@ -21,12 +21,13 @@ Everything runs in Docker via `docker compose`. This guide covers **macOS, Linux
 | `bootstrap` *(one-shot)* | creates the first admin (idempotent) | — |
 | `backend` | NestJS API (`backend_role`) | internal only |
 | `web` | nginx: serves the UI + proxies `/api` (SSE, 500 MB uploads) | internal only |
-| `tls-proxy` | nginx: TLS termination (self-signed, HTTP/2) | **public** |
+| `tls-proxy` | nginx: TLS termination (self-signed, HTTP/2); also serves the RustFS console | **public** (`WEB_HTTPS_PORT`, `S3_CONSOLE_PORT`) |
 | `scheduler` | reconcile / retry / promote / offline-detect loop | internal only |
 | `training-worker` | Ultralytics **training + benchmark** (`worker_role`) | internal only |
 | `dataset-worker` | dataset scan/build + **model ingest** (`worker_role`) | internal only |
 
-`tls-proxy` is the only service that publishes a host port. Benchmark runs inside
+`tls-proxy` is the only service that publishes host ports: the app on `WEB_HTTPS_PORT` and the
+RustFS console on `S3_CONSOLE_PORT` (§7). Benchmark runs inside
 `training-worker` and model-ingest inside `dataset-worker` — there are no separate services for
 them.
 
@@ -194,6 +195,14 @@ Config:
 
 **`WEBAUTHN_RP_ID` is permanent** — changing it later invalidates every already-registered
 passkey.
+
+**RustFS console.** `tls-proxy` also serves the object store's web console, over the same
+certificate, at `https://<host>:<S3_CONSOLE_PORT>` (default 9001); the bare address redirects to
+`/rustfs/console/`. Log in with `S3_ACCESS_KEY` / `S3_SECRET_KEY`. It gets its own port rather than
+a path under the app because the console treats the address in the URL bar as the S3 API itself.
+Those are the root keys, so anyone who has them can delete artifacts from the console, which the
+app itself never allows — keep them to administrators, and close the port in your firewall if the
+console should only be reachable from some networks.
 
 ---
 
