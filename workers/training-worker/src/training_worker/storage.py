@@ -32,3 +32,8 @@ class Storage:
 
     def get_file(self, bucket: str, object_key: str, path: str) -> None:
         self.client.fget_object(bucket, object_key, path)
+
+    def remove(self, object_key: str) -> None:
+        """Only for the live training log, which is not an artifact. Artifacts are
+        immutable and never removed (AGENTS.md rule 3)."""
+        self.client.remove_object(self.bucket, object_key)

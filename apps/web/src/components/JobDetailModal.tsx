@@ -147,9 +147,9 @@ export function JobDetailModal({ id, onClose }: { id: string; onClose: () => voi
     enabled: !!owner && !!data,
     refetchInterval: 5000,
   });
-  // Multiple TRAIN_LOG rows can exist for one job: a "live" one the worker keeps
-  // overwriting in the object store while RUNNING, plus a final one at completion —
-  // always show the most recently created row.
+  // A job's log is its TRAIN_LOG artifact, written once when the job ends. Older
+  // training jobs may also carry a retired "live" row; the final one is newer, so
+  // the most recently created row is the one to show.
   const logArtifact = useMemo(
     () =>
       artifacts
@@ -166,6 +166,19 @@ export function JobDetailModal({ id, onClose }: { id: string; onClose: () => voi
     [artifacts],
   );
 
+  const isActive = !!data && ACTIVE.includes(data.execution_status);
+  // A running training job has no TRAIN_LOG artifact yet: its log-so-far is served
+  // from the live endpoint, which the worker refreshes every epoch and which stops
+  // existing once the final log has been recorded. 404 there just means no epoch
+  // has finished yet. Every other case reads the artifact.
+  const logUrl =
+    data?.job_type === 'TRAINING' && isActive && data.resource_id
+      ? `/api/v1/training-jobs/${data.resource_id}/live-log`
+      : logArtifact
+        ? `/api/v1/artifacts/${logArtifact.id}/view`
+        : null;
+  const isLiveLog = !!logUrl && logUrl.endsWith('/live-log');
+
   const [logContent, setLogContent] = useState<string | null>(null);
   const [logLoading, setLogLoading] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
@@ -173,16 +186,17 @@ export function JobDetailModal({ id, onClose }: { id: string; onClose: () => voi
   const [stopConfirm, setStopConfirm] = useState<{ id: string; name: string } | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!logArtifact) return;
+    if (!logUrl) return;
     let cancelled = false;
     const fetchLog = () => {
-      fetch(`/api/v1/artifacts/${logArtifact.id}/view`, { credentials: 'include' })
+      fetch(logUrl, { credentials: 'include' })
         .then((r) => {
+          if (isLiveLog && r.status === 404) return null;
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           return r.text();
         })
         .then((t) => {
-          if (cancelled) return;
+          if (cancelled || t === null) return;
           setLogContent(sanitizeLog(t));
         })
         .catch((e) => !cancelled && setLogError((e as Error).message))
@@ -191,14 +205,13 @@ export function JobDetailModal({ id, onClose }: { id: string; onClose: () => voi
     setLogLoading(true);
     setLogError(null);
     fetchLog();
-    // The live artifact's underlying object keeps growing while RUNNING —
-    // re-fetch its content periodically instead of only once per artifact id.
-    const iv = data && ACTIVE.includes(data.execution_status) ? setInterval(fetchLog, 3000) : null;
+    // The live log grows every epoch; a finished log never changes.
+    const iv = isLiveLog ? setInterval(fetchLog, 3000) : null;
     return () => {
       cancelled = true;
       if (iv) clearInterval(iv);
     };
-  }, [logArtifact, data?.execution_status]);
+  }, [logUrl, isLiveLog]);
 
   // Auto-scroll to bottom when new log content arrives, unless the user scrolled up.
   useEffect(() => {

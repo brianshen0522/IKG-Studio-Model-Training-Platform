@@ -6,6 +6,7 @@ import { errorCode, officialWeightsProblem, validateYoloArgs } from '@model-trai
 import { AuditService } from '../audit/audit.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { TrainingStateMachine } from './training-state-machine';
+import { ObjectStoreService } from '../storage/object-store.service';
 import { createHash, randomUUID } from 'crypto';
 
 const DISPATCH_EVENT = 'job.training.dispatch';
@@ -96,7 +97,23 @@ export class TrainingService {
     private readonly auditService: AuditService,
     private readonly outboxService: OutboxService,
     private readonly stateMachine: TrainingStateMachine,
+    private readonly store: ObjectStoreService,
   ) {}
+
+  /**
+   * The log-so-far of a job that is running, read from the key the training worker
+   * overwrites on every epoch (trainer.py `_live_log_key`). It is not an artifact:
+   * it changes while the job runs and is removed once the final log is recorded as
+   * the job's immutable TRAIN_LOG, which is what to read after that.
+   */
+  async liveLog(id: string): Promise<NodeJS.ReadableStream> {
+    const job = await this.db.selectFrom('training_jobs').select('id').where('id', '=', id).executeTakeFirst();
+    if (!job) throw err(errorCode.TRAINING_JOB_NOT_FOUND, 'training job not found', 404);
+    const bucket = process.env.S3_BUCKET ?? 'artifacts';
+    const stream = await this.store.getObject(bucket, `live-logs/training-job/${id}/training.log`);
+    if (!stream) throw err(errorCode.TRAINING_LIVE_LOG_NOT_FOUND, 'no live log for this training job', 404);
+    return stream;
+  }
 
   /**
    * Create + submit in one tx. No DRAFT state — the job enters the machine at

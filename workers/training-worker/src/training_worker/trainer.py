@@ -80,6 +80,11 @@ class Trainer:
         assignment_token = payload["assignment_token"]
         correlation_id = payload.get("correlation_id")
         log.info("training dispatched", training_job_id=job_id, job_execution_id=job_execution_id)
+        # Final-log state for this run. _final_log is the uploaded object, recorded
+        # once the artifacts row is inserted, committed once that transaction is.
+        self._final_log = None
+        self._final_log_recorded = False
+        self._final_log_committed = False
 
         with self.conn.cursor() as cur:
             cur.execute(
@@ -106,6 +111,7 @@ class Trainer:
 
         ctx = self._load(job_id)
         work_dir = os.path.join(ctx["model_root_host"], ".training", job_id)
+        self._log_path = os.path.join(work_dir, "training.log")
         model_root_path = None
         try:
             self._audit(job_id, correlation_id, "TRAINING_JOB_PREPARING", "SUCCESS", {"from": "QUEUED", "to": "PREPARING"})
@@ -143,6 +149,8 @@ class Trainer:
             # Keep the object store as the only long-term home for trained weights: wipe the run dir
             # and drop the Model Root copy (re-downloaded on demand for training/benchmark).
             shutil.rmtree(work_dir, ignore_errors=True)
+            if self._final_log_committed:
+                self._drop_live_log(job_id)
             if model_root_path and os.path.isfile(model_root_path):
                 try:
                     os.remove(model_root_path)
@@ -318,52 +326,75 @@ class Trainer:
                     log.warn("could not cache weights", error=str(e)[:120])
                 return
 
-    def _flush_log_artifact(self, job_id: str, job_execution_id: str, log_path: str) -> None:
-        """Best-effort: push the log-so-far to a fixed object key (overwritten every
-        call, not a new object each time) so the UI can show accumulated output while
-        RUNNING, not just the latest progress_message line. The artifacts row for this
-        key is inserted once (first flush of this run) and never updated afterwards —
-        trg_artifacts_content_immutable forbids UPDATEs on content columns, but the
-        object behind a fixed key can still be overwritten freely; only the row's
-        checksum column goes stale, and nothing reads it back for verification."""
+    @staticmethod
+    def _live_log_key(job_id: str) -> str:
+        """Where the log-so-far lives while a job runs. Deliberately outside the
+        artifacts/ prefix and without an artifacts row: it is overwritten on every
+        flush, and an artifact is immutable. It used to be registered as a VERIFIED
+        TRAIN_LOG whose row kept the first flush's size and checksum while the
+        object behind it grew to the full log, so every such row was wrong.
+        apps/api/src/training/training.service.ts reads this same key."""
+        return f"live-logs/training-job/{job_id}/training.log"
+
+    def _flush_live_log(self, job_id: str, log_path: str) -> None:
+        """Best-effort: push the log-so-far so the UI can follow a RUNNING job.
+        A failed upload only delays what the viewer sees, so it never raises."""
         if not os.path.isfile(log_path):
             return
         try:
-            key = f"artifacts/training-job/{job_id}/live/training.log"
-            up = self.storage.put_file(key, log_path, "text/plain")
+            self.storage.put_file(self._live_log_key(job_id), log_path, "text/plain")
         except Exception as e:  # noqa: BLE001
             log.warn("live log upload failed", training_job_id=job_id, error=str(e)[:200])
-            return
-        if getattr(self, "_live_log_artifact_id", None):
+
+    def _persist_final_log(self, job_id: str, log_path: str) -> dict | None:
+        """Upload the finished log once, to a fresh key, as the job's immutable
+        TRAIN_LOG. Cached so a completion that fails after uploading (and falls
+        through to _fail) records the same object instead of uploading again."""
+        if self._final_log is not None:
+            return self._final_log
+        if not os.path.isfile(log_path):
+            return None
+        log_id = str(uuid.uuid4())
+        try:
+            info = self.storage.put_file(
+                f"artifacts/training-job/{job_id}/{log_id}/training.log", log_path, "text/plain",
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warn("log upload skipped", training_job_id=job_id, error=str(e)[:200])
+            return None
+        self._final_log = {"id": log_id, **info}
+        return self._final_log
+
+    def _insert_log_artifact(self, cur, job_id: str, job_execution_id: str) -> None:
+        """Record the final log in the caller's transaction. Own savepoint, so a
+        failed insert cannot abort the completion, failure or stop it belongs to."""
+        la = self._final_log
+        if la is None:
             return
         try:
-            with psycopg.connect(self.cfg.pg_conninfo(), autocommit=True) as conn:
-                with conn.cursor() as cur:
-                    # Re-runs of the same job keep the fixed live key from the previous
-                    # run's artifacts row — the content is immutable (row can't be
-                    # updated) but the object behind it can. Reuse that row
-                    # instead of blind-inserting and tripping uq_artifacts_object.
-                    cur.execute(
-                        "SELECT id FROM artifacts WHERE bucket_name=%s AND object_key=%s",
-                        (up["bucket"], up["object_key"]),
-                    )
-                    row = cur.fetchone()
-                    if row:
-                        artifact_id = row[0]
-                    else:
-                        artifact_id = str(uuid.uuid4())
-                        cur.execute(
-                            "INSERT INTO artifacts (id, owner_type_code, owner_id, artifact_type_code, "
-                            "source_execution_id, status, bucket_name, object_key, filename, mime_type, "
-                            "file_size_bytes, checksum, is_primary, created_by_actor_type, created_by_actor_ref) "
-                            "VALUES (%s,'TRAINING_JOB',%s,'TRAIN_LOG',%s,'VERIFIED',%s,%s,'training.log',"
-                            "'text/plain',%s,%s,false,'WORKER',%s)",
-                            (artifact_id, job_id, job_execution_id, up["bucket"], up["object_key"],
-                             up["size"], up["checksum"], self.cfg.consumer),
-                        )
-            self._live_log_artifact_id = artifact_id
+            cur.execute("SAVEPOINT art")
+            cur.execute(
+                "INSERT INTO artifacts (id, owner_type_code, owner_id, artifact_type_code, source_execution_id, "
+                "status, bucket_name, object_key, filename, mime_type, file_size_bytes, checksum, is_primary, "
+                "created_by_actor_type, created_by_actor_ref, verified_at) "
+                "VALUES (%s,'TRAINING_JOB',%s,'TRAIN_LOG',%s,'VERIFIED',%s,%s,'training.log','text/plain',%s,%s,false,'WORKER',%s,now())",
+                (la["id"], job_id, job_execution_id, la["bucket"], la["object_key"],
+                 la["size"], la["checksum"], self.cfg.consumer),
+            )
+            cur.execute("RELEASE SAVEPOINT art")
+            self._final_log_recorded = True
         except Exception as e:  # noqa: BLE001
-            log.warn("live log artifact insert failed", training_job_id=job_id, error=str(e)[:200])
+            cur.execute("ROLLBACK TO SAVEPOINT art")
+            log.warn("log artifact insert failed", training_job_id=job_id, error=str(e)[:200])
+
+    def _drop_live_log(self, job_id: str) -> None:
+        """Remove the live copy once the final log is committed. Kept otherwise:
+        if the final log never made it, the live copy is the only one left, and
+        the API still serves it."""
+        try:
+            self.storage.remove(self._live_log_key(job_id))
+        except Exception as e:  # noqa: BLE001
+            log.warn("live log removal failed", training_job_id=job_id, error=str(e)[:200])
 
     def _progress(self, job_execution_id: str, pct: float, message: str) -> None:
         """Best-effort live progress update on job_executions, mirrors dataset-worker's
@@ -382,7 +413,6 @@ class Trainer:
 
     def _train(self, ctx: dict, work_dir: str, job_id: str, job_execution_id: str) -> str:
         self._stopped_by_request = False
-        self._live_log_artifact_id = None
         if not os.path.isfile(ctx["data_yaml"]):
             raise TrainingError("PREPARATION", "TRAINING_DATA_YAML_MISSING", f"data.yaml not found: {ctx['data_yaml']}")
         shutil.rmtree(work_dir, ignore_errors=True)
@@ -457,7 +487,7 @@ class Trainer:
                 except Exception:  # noqa: BLE001
                     loss_bits = ""
             self._progress(job_execution_id, pct, f"epoch {done}/{total}{loss_bits}")
-            self._flush_log_artifact(job_id, job_execution_id, log_path)
+            self._flush_live_log(job_id, log_path)
         model.add_callback("on_train_epoch_end", _progress_flush)
 
         # Tee ultralytics' stdout/stderr to disk as it's produced (not just after
@@ -528,20 +558,7 @@ class Trainer:
             chart_artifacts = upload_run_outputs(self.storage, run_base_dir, "training-job", job_id)
             log.info("training outputs uploaded", training_job_id=job_id, count=len(chart_artifacts))
 
-        log_artifact = None
-        log_path = os.path.join(os.path.dirname(run_base_dir), "training.log")
-        if os.path.isfile(log_path):
-            log_id = str(uuid.uuid4())
-            log_key = f"artifacts/training-job/{job_id}/{log_id}/training.log"
-            try:
-                log_info = self.storage.put_file(log_key, log_path, "text/plain")
-                log_artifact = {
-                    "id": log_id, "bucket": log_info["bucket"],
-                    "object_key": log_info["object_key"], "size": log_info["size"],
-                    "checksum": log_info["checksum"],
-                }
-            except Exception:  # noqa: BLE001
-                log.warn("log upload skipped", training_job_id=job_id)
+        self._persist_final_log(job_id, os.path.join(os.path.dirname(run_base_dir), "training.log"))
 
         # Read the metadata back out of the checkpoint we just produced, using the same
         # extractor as the Model Root scan, so a trained model and a discovered one carry
@@ -562,7 +579,7 @@ class Trainer:
             "model_root_path": target_final,
             "best_artifact_id": best_artifact_id, "artifact": up, "architecture": arch,
             "filename": model_fname,
-            "chart_artifacts": chart_artifacts, "log_artifact": log_artifact,
+            "chart_artifacts": chart_artifacts,
         }
 
     def _complete(self, ctx, job_id, job_execution_id, correlation_id, result) -> None:
@@ -597,23 +614,7 @@ class Trainer:
                 except Exception as e:  # noqa: BLE001
                     cur.execute("ROLLBACK TO SAVEPOINT art")
                     log.warn("artifact insert failed", training_job_id=job_id, file=ca["fname"], error=str(e)[:200])
-            # TRAIN_LOG artifact
-            if result.get("log_artifact"):
-                la = result["log_artifact"]
-                try:
-                    cur.execute("SAVEPOINT art")
-                    cur.execute(
-                        "INSERT INTO artifacts (id, owner_type_code, owner_id, artifact_type_code, source_execution_id, "
-                        "status, bucket_name, object_key, filename, mime_type, file_size_bytes, checksum, is_primary, "
-                        "created_by_actor_type, created_by_actor_ref, verified_at) "
-                        "VALUES (%s,'TRAINING_JOB',%s,'TRAIN_LOG',%s,'VERIFIED',%s,%s,'training.log','text/plain',%s,%s,false,'WORKER',%s,now())",
-                        (la["id"], job_id, job_execution_id, la["bucket"], la["object_key"],
-                         la["size"], la["checksum"], self.cfg.consumer),
-                    )
-                    cur.execute("RELEASE SAVEPOINT art")
-                except Exception as e:  # noqa: BLE001
-                    cur.execute("ROLLBACK TO SAVEPOINT art")
-                    log.warn("log artifact insert failed", training_job_id=job_id, error=str(e)[:200])
+            self._insert_log_artifact(cur, job_id, job_execution_id)
             # register TRAINING-source model
             cur.execute(
                 "SELECT 1 FROM models WHERE dataset_type_id=%s AND lower(name)=lower(%s)",
@@ -656,10 +657,24 @@ class Trainer:
                     (aid, ctx["created_by"], f"Training \"{ctx['name']}\" completed; model registered.", job_id),
                 )
         self.conn.commit()
+        self._final_log_committed = self._final_log_recorded
         log.info("training completed", training_job_id=job_id, model_id=model_id, checksum=result["checksum"][:12])
 
     def _fail(self, ctx, job_id, job_execution_id, correlation_id, stage, code, message) -> None:
         self.conn.rollback()
+        # Whatever _complete recorded was just rolled back with it.
+        self._final_log_recorded = False
+        # Training output stops where the failure happened; say what it was, so
+        # the persisted log ends with the reason instead of mid-epoch.
+        log_path = getattr(self, "_log_path", None)
+        if log_path and os.path.isfile(log_path) and self._final_log is None:
+            try:
+                with open(log_path, "a", encoding="utf-8") as fh:
+                    fh.write(f"\n[training failed] {stage} {code}: {message}\n")
+            except OSError:
+                pass
+        if log_path:
+            self._persist_final_log(job_id, log_path)
         with self.conn.cursor() as cur:
             cur.execute(
                 "UPDATE training_jobs SET status='FAILED', finished_at=now(), failure_stage=%s, failure_code=%s, "
@@ -677,11 +692,17 @@ class Trainer:
                     "resource_type_code, resource_id) VALUES (%s,%s,'ERROR','Training Failed',%s,'TRAINING_JOB',%s)",
                     (aid, ctx["created_by"], f"Training \"{ctx.get('name','?')}\" failed: {code}.", job_id),
                 )
+            self._insert_log_artifact(cur, job_id, job_execution_id)
         self.conn.commit()
+        self._final_log_committed = self._final_log_recorded
         log.error("training failed", training_job_id=job_id, stage=stage, error_code=code, detail=message[:200])
 
     def _stopped(self, ctx, job_id, job_execution_id, correlation_id) -> None:
         self.conn.rollback()
+        self._final_log_recorded = False
+        log_path = getattr(self, "_log_path", None)
+        if log_path:
+            self._persist_final_log(job_id, log_path)
         with self.conn.cursor() as cur:
             cur.execute(
                 "UPDATE training_jobs SET status='STOPPED', finished_at=now(), stopped_at=now(), "
@@ -699,7 +720,9 @@ class Trainer:
                         "resource_type_code, resource_id) VALUES (%s,%s,'WARNING','Training Stopped',%s,'TRAINING_JOB',%s)",
                         (aid, ctx["created_by"], f"Training \"{ctx.get('name', '?')}\" stopped by user request.", job_id),
                     )
+                self._insert_log_artifact(cur, job_id, job_execution_id)
         self.conn.commit()
+        self._final_log_committed = self._final_log_recorded
         log.info("training stopped", training_job_id=job_id)
 
     def _audit(self, resource_id, correlation_id, action, result, metadata) -> None:

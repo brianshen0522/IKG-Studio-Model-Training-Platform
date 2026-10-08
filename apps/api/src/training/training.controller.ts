@@ -1,5 +1,5 @@
-import { Controller, Get, Post, Param, Body, Query, Req, HttpCode, HttpException } from '@nestjs/common';
-import { Request } from 'express';
+import { Controller, Get, Post, Param, Body, Query, Req, Res, HttpCode, HttpException } from '@nestjs/common';
+import { Request, Response } from 'express';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { errorCode } from '@model-trainer/shared-types';
 import { TrainingService } from './training.service';
@@ -50,6 +50,16 @@ export class TrainingController {
   @Get(':id')
   get(@Param('id') id: string) {
     return this.service.get(id);
+  }
+
+  // Raw text, not the { data } envelope: @Res() bypasses the interceptor, as the
+  // artifact /view endpoint does. no-store, because the content changes per epoch.
+  @Get(':id/live-log')
+  async liveLog(@Param('id') id: string, @Res() res: Response) {
+    const stream = await this.service.liveLog(id);
+    res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+    stream.on('error', () => res.end());
+    stream.pipe(res);
   }
 
   @Get(':id/history')

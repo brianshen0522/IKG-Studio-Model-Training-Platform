@@ -134,6 +134,17 @@ export class ObjectStoreService implements OnModuleInit {
     }
   }
 
+  /** The object's content stream, or null when there is no such object. */
+  async getObject(bucket: string, key: string): Promise<NodeJS.ReadableStream | null> {
+    try {
+      return await this.client.getObject(bucket, key);
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      if (code === 'NoSuchKey' || code === 'NotFound') return null;
+      throw e;
+    }
+  }
+
   async presignedGetUrl(bucket: string, key: string, expires = 3600): Promise<string> {
     return this.client.presignedGetObject(bucket, key, expires);
   }
