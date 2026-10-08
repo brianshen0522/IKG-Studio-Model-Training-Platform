@@ -377,7 +377,7 @@ await run('dataset-build', async () => {
   await modal().getByRole('button', { name: 'Next' }).click(); await sleep(300);
   // details step — name must match NAME_RE (path-safe)
   await setField(modal(), 'Name', BUILT_DS);
-  await modal().locator('.choice', { hasText: 'DETECT' }).click();
+  await modal().locator('.choice', { hasText: 'BBOX' }).click();
   await modal().getByRole('button', { name: 'Next' }).click(); await sleep(500);
   // sources step — pick the two that share a classes.txt so the merge is compatible
   for (const name of BUILD_SOURCES) {
@@ -406,7 +406,7 @@ await run('dataset-register', async () => {
   await modal().locator('.origin-card', { hasText: 'Register an existing directory' }).click();
   await modal().getByRole('button', { name: 'Next' }).click(); await sleep(300);
   await setField(modal(), 'Name', REGISTERED_DS);
-  await modal().locator('.choice', { hasText: 'DETECT' }).click();
+  await modal().locator('.choice', { hasText: 'BBOX' }).click();
   await modal().getByRole('button', { name: 'Next' }).click(); await sleep(300);
   await modal().getByRole('button', { name: 'Browse…' }).click(); await sleep(1000);
   // Descend into datasets/<name>-<uuid8>, which is where the build published.
