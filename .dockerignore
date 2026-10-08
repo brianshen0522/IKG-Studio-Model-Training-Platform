@@ -11,3 +11,18 @@ deploy/qa-data
 deploy/data
 data/
 qa/
+
+# Never bake configuration into an image. Dockerfile.api, .scheduler and .web
+# all do `COPY . .`, so without this the live deploy/.env lands inside the
+# backend and scheduler images together with every secret in it. That already
+# happened: both shipped /app/deploy/.env plus a timestamped .env backup left
+# over from renaming MINIO_* to S3_*. Nothing reads .env at build time --
+# Compose supplies it at runtime through env_file -- so excluding it is safe.
+#
+# No `!env.example` exception here, and it must stay that way: a negation makes
+# BuildKit walk the whole context to find what the exception might match, and it
+# then fails on root-owned data/postgres despite the data/ rule above. The
+# template ships anyway because its name does not start with ".env".
+.env
+**/.env
+**/.env.*
