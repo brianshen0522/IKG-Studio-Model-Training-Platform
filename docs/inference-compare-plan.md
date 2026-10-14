@@ -1,6 +1,6 @@
 # 模型推論比對（單機版）實作規劃
 
-> 狀態：第一至三階段完成（2026-10-14），未部署
+> 狀態：第一至四階段完成（2026-10-14），未部署
 > 範圍：只在 Model Training Platform（MTP）內完成 **Inference → Compare → Download**。
 > 回填 Dataset Manager（DM）等跨系統串接**不在本次範圍**，之後另外討論（見 §9）。
 

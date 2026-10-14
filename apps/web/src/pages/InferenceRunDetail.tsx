@@ -4,6 +4,8 @@ import { StatusBadge } from '../components/StatusBadge';
 import { SkeletonLoader } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
 import { formatDate } from '../lib/format';
+import { useUrlParam } from '../lib/urlState';
+import { InferenceCompare } from '../components/InferenceCompare';
 
 interface RunDataset {
   id: string;
@@ -52,6 +54,7 @@ const cardLabel: React.CSSProperties = { fontSize: '12px', color: 'var(--text-su
 const cardValue: React.CSSProperties = { fontSize: '18px', fontWeight: 600, marginTop: '4px', color: 'var(--text)' };
 
 export function InferenceRunDetail({ id, onBack }: { id: string; onBack: () => void }) {
+  const [compareId, setCompareId] = useUrlParam('compareDatasetId');
   const { data, isLoading, error } = useQuery({
     queryKey: ['inference-run', id],
     queryFn: () => apiGet<InferenceRun>(`/inference-runs/${id}`),
@@ -71,6 +74,8 @@ export function InferenceRunDetail({ id, onBack }: { id: string; onBack: () => v
     }),
     { images: 0, processed: 0, diff: 0, missing: 0, extra: 0, mismatch: 0 },
   );
+
+  if (compareId) return <InferenceCompare runId={id} rdId={compareId} onBack={() => setCompareId(null)} />;
 
   return (
     <section className="page">
@@ -184,6 +189,11 @@ export function InferenceRunDetail({ id, onBack }: { id: string; onBack: () => v
                       <td style={{ textAlign: 'right' }}>{d.extra_count.toLocaleString()}</td>
                       <td style={{ textAlign: 'right' }}>{d.class_mismatch_count.toLocaleString()}</td>
                       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {d.diff_image_count > 0 && (
+                          <button className="btn btn-sm btn-primary" style={{ marginRight: 6 }} onClick={() => setCompareId(d.id)}>
+                            Compare
+                          </button>
+                        )}
                         {d.zip_artifact_id ? (
                           <a className="btn btn-sm btn-secondary" href={`/api/v1/artifacts/${d.zip_artifact_id}/download`}>
                             Download ZIP

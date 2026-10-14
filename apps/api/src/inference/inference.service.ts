@@ -6,6 +6,9 @@ import { errorCode } from '@model-trainer/shared-types';
 import { AuditService } from '../audit/audit.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { createHash, randomUUID } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
+import { normalizeRoot, isWithinRoot } from '../common/roots';
 
 const DISPATCH_EVENT = 'job.inference.dispatch';
 
@@ -20,6 +23,11 @@ const SUPPORTED_TASK_TYPES = new Set(['DETECT']);
 type Actor = { id: string; role: string };
 const err = (code: string, message: string, status: number) =>
   new HttpException({ error: { code, message, requestId: '' } }, status);
+
+/** Diff list filters: which kind of disagreement an image must have. */
+export const DIFF_KINDS = ['MISSING', 'EXTRA', 'CLASS_MISMATCH', 'LABEL_INVALID'] as const;
+export type DiffKind = (typeof DIFF_KINDS)[number];
+export type DiffSort = 'path' | 'most';
 
 const RUN_FIELDS = [
   'id', 'name', 'description', 'dataset_type_id', 'model_id', 'model_checksum_snapshot',
@@ -140,6 +148,94 @@ export class InferenceService {
 
       return trx.selectFrom('inference_runs').select(RUN_FIELDS).where('id', '=', id).executeTakeFirstOrThrow();
     });
+  }
+
+  private async runDataset(runId: string, rdId: string) {
+    const row = await this.db.selectFrom('inference_run_datasets as d')
+      .innerJoin('source_datasets as s', 's.id', 'd.source_dataset_id')
+      .select([
+        'd.id', 'd.source_dataset_id', 'd.source_scan_id_snapshot', 'd.diff_image_count',
+        's.name as source_dataset_name', 's.relative_path', 's.images_relative_path',
+        's.manual_classes_override', 's.latest_scan_id',
+      ])
+      .where('d.id', '=', rdId).where('d.inference_run_id', '=', runId).executeTakeFirst();
+    if (!row) throw err(errorCode.INFERENCE_RUN_NOT_FOUND, 'inference run dataset not found', 404);
+    return row;
+  }
+
+  /**
+   * The class names a run's labels are indices into: the source's override if
+   * it has one, else the classes of the scan the run was created on. Same rule
+   * as the worker (inferencer._load).
+   */
+  private async classNames(rd: { manual_classes_override: string[] | null; source_scan_id_snapshot: string | null }) {
+    if (rd.manual_classes_override?.length) return rd.manual_classes_override.map(String);
+    if (!rd.source_scan_id_snapshot) return [];
+    const rows = await this.db.selectFrom('source_dataset_classes').select(['class_index', 'class_name'])
+      .where('scan_id', '=', rd.source_scan_id_snapshot).orderBy('class_index').execute();
+    return rows.map((r) => r.class_name);
+  }
+
+  async listDiffs(runId: string, rdId: string, params: { page: number; size: number; kind?: DiffKind; sort: DiffSort }) {
+    const rd = await this.runDataset(runId, rdId);
+    const size = Math.min(Math.max(params.size, 1), 500);
+    const offset = (params.page - 1) * size;
+    let q = this.db.selectFrom('inference_diffs').where('inference_run_dataset_id', '=', rdId);
+    if (params.kind === 'MISSING') q = q.where('missing_count', '>', 0);
+    if (params.kind === 'EXTRA') q = q.where('extra_count', '>', 0);
+    if (params.kind === 'CLASS_MISMATCH') q = q.where('class_mismatch_count', '>', 0);
+    if (params.kind === 'LABEL_INVALID') q = q.where('label_invalid', '=', true);
+    const [{ count }] = await q.select(sql<string>`count(*)`.as('count')).execute();
+    let rows = q.select([
+      'id', 'image_relative_path', 'missing_count', 'extra_count', 'class_mismatch_count', 'label_invalid',
+    ]);
+    rows = params.sort === 'most'
+      ? rows.orderBy(sql`missing_count + extra_count + class_mismatch_count`, 'desc').orderBy('image_relative_path')
+      : rows.orderBy('image_relative_path');
+    const items = await rows.limit(size).offset(offset).execute();
+    return { items, total: Number(count), page: params.page, size };
+  }
+
+  /** What the compare page needs about one dataset of a run, besides its diffs. */
+  async getRunDataset(runId: string, rdId: string) {
+    const rd = await this.runDataset(runId, rdId);
+    const run = await this.db.selectFrom('inference_runs').select(['name', 'conf_threshold', 'iou_threshold'])
+      .where('id', '=', runId).executeTakeFirstOrThrow();
+    return {
+      id: rd.id, source_dataset_id: rd.source_dataset_id, source_dataset_name: rd.source_dataset_name,
+      diff_image_count: rd.diff_image_count,
+      source_changed: rd.latest_scan_id !== rd.source_scan_id_snapshot,
+      class_names: await this.classNames(rd),
+      run_name: run.name, conf_threshold: run.conf_threshold, iou_threshold: run.iou_threshold,
+    };
+  }
+
+  async getDiff(runId: string, rdId: string, diffId: string) {
+    await this.runDataset(runId, rdId);
+    const row = await this.db.selectFrom('inference_diffs').selectAll()
+      .where('id', '=', diffId).where('inference_run_dataset_id', '=', rdId).executeTakeFirst();
+    if (!row) throw err(errorCode.INFERENCE_DIFF_NOT_FOUND, 'diff not found', 404);
+    return row;
+  }
+
+  /**
+   * The source image a diff was computed on. The path comes from the stored
+   * row, never from the request, so names with spaces or non-ASCII characters
+   * work (the source sample endpoint's filename check would refuse them) and
+   * nothing outside the dataset's images folder can be reached.
+   */
+  async diffImagePath(runId: string, rdId: string, diffId: string): Promise<string> {
+    const rd = await this.runDataset(runId, rdId);
+    const diff = await this.getDiff(runId, rdId, diffId);
+    const imagesDir = normalizeRoot(path.join(rd.relative_path, rd.images_relative_path));
+    const full = normalizeRoot(path.join(imagesDir, diff.image_relative_path));
+    if (!isWithinRoot(full, imagesDir)) throw err(errorCode.INFERENCE_DIFF_NOT_FOUND, 'diff image not found', 404);
+    try {
+      await fs.promises.access(full, fs.constants.R_OK);
+    } catch {
+      throw err(errorCode.INFERENCE_DIFF_IMAGE_MISSING, 'the source image is no longer on disk', 404);
+    }
+    return full;
   }
 
   async get(id: string) {

@@ -1,8 +1,8 @@
-import { Controller, Get, Post, Param, Body, Query, Req, HttpCode, HttpException } from '@nestjs/common';
-import { Request } from 'express';
+import { Controller, Get, Post, Param, Body, Query, Req, Res, HttpCode, HttpException } from '@nestjs/common';
+import { Request, Response } from 'express';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { errorCode } from '@model-trainer/shared-types';
-import { InferenceService } from './inference.service';
+import { InferenceService, DIFF_KINDS, type DiffKind } from './inference.service';
 
 const actorOf = (req: Request) =>
   (req as unknown as Record<string, unknown>).user as { id: string; role: string };
@@ -62,5 +62,49 @@ export class InferenceController {
   get(@Param('id') id: string) {
     if (!UUID_RE.test(id)) throw notFound();
     return this.service.get(id);
+  }
+
+  @Get(':id/datasets/:rdId/diffs')
+  async listDiffs(
+    @Param('id') id: string, @Param('rdId') rdId: string,
+    @Query('page') page?: string, @Query('size') size?: string,
+    @Query('kind') kind?: string, @Query('sort') sort?: string,
+  ) {
+    if (!UUID_RE.test(id) || !UUID_RE.test(rdId)) throw notFound();
+    if (kind && !(DIFF_KINDS as readonly string[]).includes(kind)) {
+      throw badRequest(`kind must be one of ${DIFF_KINDS.join(', ')}`);
+    }
+    if (sort && sort !== 'path' && sort !== 'most') throw badRequest("sort must be 'path' or 'most'");
+    const r = await this.service.listDiffs(id, rdId, {
+      page: intOr(page, 1), size: intOr(size, 100), kind: kind as DiffKind | undefined, sort: sort === 'most' ? 'most' : 'path',
+    });
+    return {
+      data: r.items,
+      meta: { page: r.page, size: r.size, total: r.total, totalPages: Math.ceil(r.total / r.size) },
+    };
+  }
+
+  @Get(':id/datasets/:rdId')
+  getRunDataset(@Param('id') id: string, @Param('rdId') rdId: string) {
+    if (!UUID_RE.test(id) || !UUID_RE.test(rdId)) throw notFound();
+    return this.service.getRunDataset(id, rdId);
+  }
+
+  @Get(':id/datasets/:rdId/diffs/:diffId')
+  getDiff(@Param('id') id: string, @Param('rdId') rdId: string, @Param('diffId') diffId: string) {
+    if (![id, rdId, diffId].every((v) => UUID_RE.test(v))) throw notFound();
+    return this.service.getDiff(id, rdId, diffId);
+  }
+
+  @Get(':id/datasets/:rdId/diffs/:diffId/image')
+  async getDiffImage(
+    @Param('id') id: string, @Param('rdId') rdId: string, @Param('diffId') diffId: string,
+    @Res() res: Response,
+  ) {
+    if (![id, rdId, diffId].every((v) => UUID_RE.test(v))) throw notFound();
+    const full = await this.service.diffImagePath(id, rdId, diffId);
+    // Diff rows never change, but the file behind one can (Dataset Manager
+    // re-archives into the same folder), so let the browser revalidate.
+    res.sendFile(full, { headers: { 'Cache-Control': 'private, no-cache' } });
   }
 }
