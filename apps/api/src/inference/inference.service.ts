@@ -245,7 +245,7 @@ export class InferenceService {
         await trx.updateTable('inference_run_datasets').set({
           status: 'QUEUED', source_scan_id_snapshot: d.latest_scan_id,
           image_count: 0, processed_count: 0, diff_image_count: 0,
-          missing_count: 0, extra_count: 0, class_mismatch_count: 0, zip_artifact_id: null,
+          missing_count: 0, extra_count: 0, class_mismatch_count: 0, zip_artifact_id: null, class_name_warning: null,
           failure_code: null, failure_message: null, started_at: null, finished_at: null, stopped_at: null,
         }).where('id', '=', d.id).execute();
 
@@ -393,7 +393,7 @@ export class InferenceService {
       .select([
         'd.id', 'd.source_dataset_id', 'd.status', 'd.source_scan_id_snapshot',
         'd.image_count', 'd.processed_count', 'd.diff_image_count',
-        'd.missing_count', 'd.extra_count', 'd.class_mismatch_count', 'd.zip_artifact_id',
+        'd.missing_count', 'd.extra_count', 'd.class_mismatch_count', 'd.zip_artifact_id', 'd.class_name_warning',
         'd.failure_code', 'd.failure_message', 'd.started_at', 'd.finished_at', 'd.stopped_at',
         's.name as source_dataset_name',
         // The compare page warns when the source has been rescanned since.

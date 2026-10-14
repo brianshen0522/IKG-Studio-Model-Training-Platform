@@ -20,6 +20,7 @@ interface RunDataset {
   extra_count: number;
   class_mismatch_count: number;
   zip_artifact_id: string | null;
+  class_name_warning: string | null;
   failure_code: string | null;
   failure_message: string | null;
   source_changed: boolean;
@@ -169,6 +170,12 @@ export function InferenceRunDetail({ id, onBack }: { id: string; onBack: () => v
                           <div style={{ fontSize: '11px', color: 'var(--yellow)' }}
                             title="The source dataset was rescanned after this run was created, so its files may no longer be the ones that were inferred.">
                             ⚠ source rescanned since this run
+                          </div>
+                        )}
+                        {d.class_name_warning && (
+                          <div style={{ fontSize: '11px', color: 'var(--yellow)', marginTop: '2px', overflowWrap: 'anywhere' }}
+                            title="The model and the source dataset have the same number of classes but name some differently. Labels are compared by class index, so check these are the same classes.">
+                            ⚠ {d.class_name_warning}
                           </div>
                         )}
                         {d.failure_message && (

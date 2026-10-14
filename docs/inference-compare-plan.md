@@ -133,9 +133,11 @@ ZIP 內容：
 
 ### 6.2 Class 對應
 
-模型 class 名稱和 source dataset class 名稱必須**依名稱完全一致**（同順序）。名稱對應（重新映射 index）先不做，列為待確認。
+標註檔存的是 class index，所以模型和 source dataset 的 class **數量必須相同**（同順序）；數量不同就把該 dataset job 標 FAILED（`failure_code = INFERENCE_CLASS_MISMATCH`），訊息列出差異。
 
-**由 worker 檢查，不在建立 run 時檢查**：`models` 表只記 `class_count`，class 名稱只在 .pt 檔裡。worker 載入模型後比對，不一致就把該 dataset job 標 FAILED（`failure_code = INFERENCE_CLASS_MISMATCH`），訊息列出差異。
+**名稱不同不擋**（2026-10-14 決定）：正式機同一個 type 底下，6 個 dataset 的第 0 個 class 叫 `cards`、2 個叫 `card`，用後者訓練的模型推論前者全部失敗。現在名稱不同只記成警告（`inference_run_datasets.class_name_warning`，migration 013），在 run 頁面顯示，推論照跑；ZIP 的 `classes.txt` 與比對頁都用 source 的名稱。依名稱重新映射 index 仍不做。
+
+**由 worker 檢查，不在建立 run 時檢查**：`models` 表只記 `class_count`，class 名稱只在 .pt 檔裡。
 
 ### 6.3 API（`apps/api/src/inference/`）
 
@@ -205,7 +207,7 @@ ZIP 內容：
 ## 8. 待確認
 
 - [ ] 輸出只要 ZIP 下載，還是也要寫一份到 NAS 資料夾？（先前討論過 A+B；本次範圍先只做 ZIP）
-- [ ] class 名稱不一致時：一律擋下，還是允許依名稱重新映射？
+- [x] class 名稱不一致時：數量相同就照跑並顯示警告，數量不同才擋（見 §6.2）。依名稱重新映射暫不做。
 - [ ] conf 0.7 / IoU 0.5 是固定值，還是建立 run 時可調？
 - [ ] ZIP 佔 RustFS 空間（差異圖是原圖複製，單張 4–581 KB）。是否需要保留期限或手動釋放？artifact 不可由使用者刪除（鐵則 3），若要釋放需另訂系統層的清理規則。
 - [ ] 誰能建立 inference run（所有登入者 / 只有 ADMIN）？

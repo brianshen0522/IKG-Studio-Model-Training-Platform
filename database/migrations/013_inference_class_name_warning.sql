@@ -1,0 +1,11 @@
+-- A model and a source dataset can name the same classes differently: on
+-- production one card type has "cards" as class 0 in six datasets and "card"
+-- in two, and a model trained on the second kind failed every run on the first.
+-- Labels hold class indices, not names, so the comparison only needs the two
+-- lists to be the same length; differing names no longer fail the job. The
+-- worker records them here instead, and the run page shows them, so a list
+-- that really is different (same length, other classes) does not go unnoticed.
+--
+-- NULL when the names match. Existing grants cover the new column: the worker
+-- already has UPDATE on the table and the backend SELECT/UPDATE.
+ALTER TABLE app.inference_run_datasets ADD COLUMN class_name_warning text;

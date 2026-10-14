@@ -654,6 +654,7 @@ export interface InferenceRunDatasetsTable {
   extra_count: Generated<number>;
   class_mismatch_count: Generated<number>;
   zip_artifact_id: string | null;
+  class_name_warning: string | null;
   failure_code: string | null;
   failure_message: string | null;
   started_at: string | null;

@@ -294,8 +294,9 @@ export function NewInferenceRunDialog({ onClose }: { onClose: () => void }) {
                 </div>
               )}
               <span className="hint" style={{ display: 'block', marginTop: '8px' }}>
-                Each dataset's class list must match the model's, name for name and in the same order;
-                a dataset that does not is reported as failed and the others still run.
+                Each dataset needs the same number of classes as the model, in the same order; a dataset
+                with a different count fails and the others still run. Names that differ only in spelling
+                (e.g. "card" and "cards") are allowed and shown as a warning on the run page.
               </span>
             </>
           )}

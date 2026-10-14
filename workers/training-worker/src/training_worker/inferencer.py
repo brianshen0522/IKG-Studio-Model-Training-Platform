@@ -85,7 +85,8 @@ def _describe_class_mismatch(model_names: list[str], source_names: list[str]) ->
         shown = "; ".join(differing[:5])
         more = f" (and {len(differing) - 5} more)" if len(differing) > 5 else ""
         parts.append(f"different names at index {shown}{more}")
-    return "class lists differ: " + "; ".join(parts)
+    return "class names differ: " + "; ".join(parts) if len(model_names) == len(source_names) \
+        else "class lists differ: " + "; ".join(parts)
 
 
 def _zip_filename(source_name: str, run_name: str) -> str:
@@ -259,19 +260,25 @@ class Inferencer:
             raise InferenceError("INFERENCE_RUNTIME_UNAVAILABLE", f"ultralytics import failed: {e}")
         model = YOLO(model_pt)
 
-        # Labels are class indices, so they only mean the same thing to the
-        # model when both lists name the same classes in the same order.
+        # Labels are class indices, so what has to agree is the length of the
+        # two lists: a different count means the indices cannot line up. Names
+        # may differ in spelling for the same class (production has "card" and
+        # "cards" for one class across datasets of one type), so a name
+        # difference is recorded as a warning and the run goes on; the ZIP and
+        # the compare page use the source's names.
         names = model.names
         model_names = [str(names[i]) for i in sorted(names)] if isinstance(names, dict) else [str(n) for n in names]
         source_names = ctx["class_names"]
-        if model_names != source_names:
+        if len(model_names) != len(source_names):
             raise InferenceError("INFERENCE_CLASS_MISMATCH", _describe_class_mismatch(model_names, source_names))
+        warning = _describe_class_mismatch(model_names, source_names) if model_names != source_names else None
         class_count = len(source_names)
 
         images = _list_images(images_dir, ctx["allow_subdirs"])
         with self.conn.cursor() as cur:
-            cur.execute("UPDATE inference_run_datasets SET image_count=%s, processed_count=0 WHERE id=%s",
-                        (len(images), rd_id))
+            cur.execute("UPDATE inference_run_datasets SET image_count=%s, processed_count=0, class_name_warning=%s "
+                        "WHERE id=%s",
+                        (len(images), warning, rd_id))
         self.conn.commit()
         log.info("inference started", inference_run_dataset_id=rd_id, images=len(images), device=device)
 
