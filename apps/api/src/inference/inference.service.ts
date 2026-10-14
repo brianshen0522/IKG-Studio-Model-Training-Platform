@@ -343,7 +343,21 @@ export class InferenceService {
     const rd = await this.runDataset(runId, rdId);
     const run = await this.db.selectFrom('inference_runs').select(['name', 'conf_threshold', 'iou_threshold'])
       .where('id', '=', runId).executeTakeFirstOrThrow();
+    // For the compare page's filter: how many images each choice would show.
+    const counts = await this.db.selectFrom('inference_diffs')
+      .select([
+        sql<string>`count(*)`.as('all'),
+        sql<string>`count(*) filter (where missing_count > 0)`.as('missing'),
+        sql<string>`count(*) filter (where extra_count > 0)`.as('extra'),
+        sql<string>`count(*) filter (where class_mismatch_count > 0)`.as('class_mismatch'),
+        sql<string>`count(*) filter (where label_invalid)`.as('label_invalid'),
+      ])
+      .where('inference_run_dataset_id', '=', rdId).executeTakeFirstOrThrow();
     return {
+      kind_counts: {
+        ALL: Number(counts.all), MISSING: Number(counts.missing), EXTRA: Number(counts.extra),
+        CLASS_MISMATCH: Number(counts.class_mismatch), LABEL_INVALID: Number(counts.label_invalid),
+      },
       id: rd.id, source_dataset_id: rd.source_dataset_id, source_dataset_name: rd.source_dataset_name,
       diff_image_count: rd.diff_image_count,
       source_changed: rd.latest_scan_id !== rd.source_scan_id_snapshot,
