@@ -7,9 +7,14 @@ to inference_diffs, with both box sets snapshotted. The source dataset is only
 read (AGENTS.md rule 2). The last job of a run to finish finalises the run, as
 benchmark evaluations do.
 """
+import csv
 import hashlib
+import io
 import json
 import os
+import re
+import uuid
+import zipfile
 import shutil
 import tempfile
 
@@ -83,6 +88,14 @@ def _describe_class_mismatch(model_names: list[str], source_names: list[str]) ->
     return "class lists differ: " + "; ".join(parts)
 
 
+def _zip_filename(source_name: str, run_name: str) -> str:
+    """ASCII only: the download endpoint writes the name into a
+    Content-Disposition header, which cannot carry anything else."""
+    def safe(v: str) -> str:
+        return re.sub(r"[^A-Za-z0-9._-]+", "_", v).strip("._") or "dataset"
+    return f"{safe(source_name)}__{safe(run_name)}.zip"
+
+
 class Inferencer:
     def __init__(self, conn, storage, cfg) -> None:
         self.conn = conn
@@ -108,7 +121,8 @@ class Inferencer:
             with GpuAllocation(self.cfg.pg_conninfo(), job_execution_id, self.cfg.consumer, device):
                 with Heartbeat(self.cfg.pg_conninfo(), job_execution_id, self.cfg.heartbeat_interval_s):
                     totals = self._infer(ctx, rd_id, job_execution_id, work_dir, device)
-            self._complete(ctx, rd_id, run_id, job_execution_id, correlation_id, totals)
+                    package = self._package(ctx, rd_id, work_dir) if totals["diff_images"] else None
+            self._complete(ctx, rd_id, run_id, job_execution_id, correlation_id, totals, package)
         except InferenceStopped:
             self._stopped(rd_id, run_id, job_execution_id, correlation_id)
         except InferenceError as ie:
@@ -168,7 +182,7 @@ class Inferencer:
     def _load(self, rd_id: str) -> dict:
         with self.conn.cursor() as cur:
             cur.execute(
-                "SELECT r.model_id, r.model_checksum_snapshot, r.conf_threshold, r.iou_threshold, r.device, "
+                "SELECT r.name, s.name, r.model_id, r.model_checksum_snapshot, r.conf_threshold, r.iou_threshold, r.device, "
                 "r.created_by_user_id, m.relative_path, m.model_path, dt.model_path, "
                 "a.bucket_name, a.object_key, a.checksum, "
                 "s.relative_path, s.images_relative_path, s.labels_relative_path, s.allow_subdirectories, "
@@ -185,7 +199,7 @@ class Inferencer:
             row = cur.fetchone()
             if row is None:
                 raise InferenceError("INFERENCE_RUN_DATASET_NOT_FOUND", "inference run dataset not found")
-            (model_id, checksum_snapshot, conf, iou_threshold, device, created_by,
+            (run_name, source_name, model_id, checksum_snapshot, conf, iou_threshold, device, created_by,
              m_rel, m_model_path, model_root, bucket, object_key, artifact_checksum,
              s_rel, images_rel, labels_rel, allow_subdirs, classes_override, scan_id) = row
 
@@ -213,6 +227,7 @@ class Inferencer:
             "labels_dir": os.path.join(s_rel, labels_rel),
             "allow_subdirs": bool(allow_subdirs),
             "class_names": class_names,
+            "run_name": run_name, "source_name": source_name,
         }
 
     def _model_file(self, ctx: dict, work_dir: str) -> str:
@@ -290,6 +305,55 @@ class Inferencer:
             self._write_chunk(rd_id, job_execution_id, diffs, totals, len(images))
         return totals
 
+    def _package(self, ctx: dict, rd_id: str, work_dir: str) -> dict:
+        """ZIP the differing images for someone to fix, and upload it.
+
+        Layout is what a labelling tool imports: images/ with the source
+        images (subdirectories kept), labels/ with the model's boxes as YOLO
+        lines without the confidence, classes.txt, and diff_summary.csv saying
+        what disagreed in each image. Labels come from the stored predictions,
+        not a fresh run, so the ZIP shows exactly what the compare page shows.
+
+        Images are stored, not deflated: they are already compressed, and
+        deflating hundreds of MB of JPEG costs time for no gain.
+        """
+        filename = _zip_filename(ctx["source_name"], ctx["run_name"])
+        zip_path = os.path.join(work_dir, filename)
+        summary = io.StringIO()
+        writer = csv.writer(summary)
+        writer.writerow(["image", "missing", "extra", "class_mismatch", "label_invalid"])
+        count = 0
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
+            # A named cursor streams the rows instead of loading every diff at once.
+            with self.conn.cursor(name=f"inference_zip_{rd_id.replace('-', '')}") as cur:
+                cur.execute(
+                    "SELECT image_relative_path, predicted_boxes, missing_count, extra_count, "
+                    "class_mismatch_count, label_invalid FROM inference_diffs "
+                    "WHERE inference_run_dataset_id=%s ORDER BY image_relative_path",
+                    (rd_id,),
+                )
+                for rel, predicted, missing, extra, mismatch, label_invalid in cur:
+                    arc = rel.replace(os.sep, "/")
+                    zf.write(os.path.join(ctx["images_dir"], rel), f"images/{arc}")
+                    lines = "".join(
+                        f"{b['class_index']} " + " ".join(f"{v:.6f}" for v in b["values"]) + "\n"
+                        for b in predicted
+                    )
+                    zf.writestr(f"labels/{os.path.splitext(arc)[0]}.txt", lines,
+                                compress_type=zipfile.ZIP_DEFLATED)
+                    writer.writerow([arc, missing, extra, mismatch, "true" if label_invalid else "false"])
+                    count += 1
+            self.conn.commit()
+            zf.writestr("classes.txt", "".join(f"{n}\n" for n in ctx["class_names"]),
+                        compress_type=zipfile.ZIP_DEFLATED)
+            zf.writestr("diff_summary.csv", summary.getvalue(), compress_type=zipfile.ZIP_DEFLATED)
+
+        artifact_id = str(uuid.uuid4())
+        key = f"artifacts/inference-run-dataset/{rd_id}/{artifact_id}/{filename}"
+        info = self.storage.put_file(key, zip_path, "application/zip")
+        log.info("inference diff zip uploaded", inference_run_dataset_id=rd_id, images=count, bytes=info["size"])
+        return {"id": artifact_id, "filename": filename, "image_count": count, **info}
+
     def _write_chunk(self, rd_id, job_execution_id, diffs, totals, image_count) -> None:
         """One commit per chunk: the diffs and the counters that include them.
         Counters are set, not incremented, so a redone chunk cannot count twice;
@@ -326,7 +390,7 @@ class Inferencer:
         if row and row[0] == "STOPPING":
             raise InferenceStopped()
 
-    def _complete(self, ctx, rd_id, run_id, job_execution_id, correlation_id, totals) -> None:
+    def _complete(self, ctx, rd_id, run_id, job_execution_id, correlation_id, totals, package) -> None:
         with self.conn.cursor() as cur:
             cur.execute(
                 "UPDATE inference_run_datasets SET status='COMPLETED', finished_at=now() "
@@ -343,6 +407,18 @@ class Inferencer:
                 self._fail(rd_id, run_id, job_execution_id, correlation_id, "INFERENCE_STATE_LOST",
                            "inference dataset left RUNNING before completion")
                 return
+            if package is not None:
+                cur.execute(
+                    "INSERT INTO artifacts (id, owner_type_code, owner_id, artifact_type_code, source_execution_id, "
+                    "status, bucket_name, object_key, filename, extension, mime_type, file_size_bytes, checksum, "
+                    "is_primary, metadata, created_by_actor_type, created_by_actor_ref, verified_at) "
+                    "VALUES (%s,'INFERENCE_RUN_DATASET',%s,'INFERENCE_DIFF_ZIP',%s,'VERIFIED',%s,%s,%s,'.zip',"
+                    "'application/zip',%s,%s,true,%s,'WORKER',%s,now())",
+                    (package["id"], rd_id, job_execution_id, package["bucket"], package["object_key"],
+                     package["filename"], package["size"], package["checksum"],
+                     json.dumps({"image_count": package["image_count"]}), self.cfg.consumer),
+                )
+                cur.execute("UPDATE inference_run_datasets SET zip_artifact_id=%s WHERE id=%s", (package["id"], rd_id))
             cur.execute("UPDATE job_executions SET status='SUCCEEDED', finished_at=now(), progress_percent=100 WHERE id=%s",
                         (job_execution_id,))
             self._audit(cur, rd_id, correlation_id, "INFERENCE_DATASET_COMPLETED", "SUCCESS", totals)

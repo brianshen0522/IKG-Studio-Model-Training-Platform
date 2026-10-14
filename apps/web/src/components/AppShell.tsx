@@ -7,6 +7,7 @@ import { apiGet, apiGetList } from '../lib/api';
 import { ModelsPage } from '../pages/ModelsPage';
 import { TrainingJobsPage } from '../pages/TrainingJobsPage';
 import { BenchmarksPage } from '../pages/BenchmarksPage';
+import { InferencePage } from '../pages/InferencePage';
 import { JobsPage } from '../pages/JobsPage';
 import { NotificationsPage } from '../pages/NotificationsPage';
 import { DashboardPage } from '../pages/DashboardPage';
@@ -20,6 +21,7 @@ const NAV: { key: Page; label: string }[] = [
   { key: 'models', label: 'Models' },
   { key: 'training', label: 'Training' },
   { key: 'benchmarks', label: 'Benchmarks' },
+  { key: 'inference', label: 'Inference' },
   { key: 'jobs', label: 'Jobs' },
   { key: 'notifications', label: 'Notifications' },
 ];
@@ -45,7 +47,7 @@ export function AppShell() {
       queryClient.invalidateQueries({ queryKey: ['notif-unread'] });
       queryClient.invalidateQueries({ queryKey: ['notif-list'] });
     };
-    // Job status changes (training/benchmark) → refresh the matching detail + list pages.
+    // Job status changes (training/benchmark/inference) → refresh the matching detail + list pages.
     const onJob = (e: MessageEvent) => {
       try {
         const d = JSON.parse(e.data) as { kind?: string; id?: string };
@@ -55,6 +57,9 @@ export function AppShell() {
         } else if (d.kind === 'benchmark') {
           queryClient.invalidateQueries({ queryKey: ['benchmark-run', d.id] });
           queryClient.invalidateQueries({ queryKey: ['benchmark-runs'] });
+        } else if (d.kind === 'inference') {
+          queryClient.invalidateQueries({ queryKey: ['inference-run', d.id] });
+          queryClient.invalidateQueries({ queryKey: ['inference-runs'] });
         }
         queryClient.invalidateQueries({ queryKey: ['jobs'] });
         queryClient.invalidateQueries({ queryKey: ['jobs-active-count'] });
@@ -170,6 +175,7 @@ export function AppShell() {
         {page === 'models' && <ModelsPage />}
         {page === 'training' && <TrainingJobsPage />}
         {page === 'benchmarks' && <BenchmarksPage />}
+        {page === 'inference' && <InferencePage />}
         {page === 'jobs' && <JobsPage />}
         {page === 'notifications' && <NotificationsPage />}
         {page === 'admin' && <AdminPage />}

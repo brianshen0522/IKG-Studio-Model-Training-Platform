@@ -70,6 +70,7 @@ const JOB_TAG_LABEL: Record<string, string> = {
   DATASET_SCAN: 'Scan',
   BENCHMARK_EVALUATION: 'Benchmark',
   MODEL_INGEST: 'Ingest',
+  INFERENCE: 'Inference',
 };
 
 function formatDate(iso: string | null): string {

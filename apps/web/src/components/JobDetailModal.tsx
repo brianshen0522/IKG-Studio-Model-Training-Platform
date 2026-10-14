@@ -52,6 +52,7 @@ const JOB_LABEL: Record<string, string> = {
   BENCHMARK_EVALUATION: 'Benchmark Eval',
   MODEL_INGEST: 'Model Ingest',
   MODEL_CONVERSION: 'Model Conversion',
+  INFERENCE: 'Inference',
 };
 
 const ACTIVE = ['ASSIGNED', 'CLAIMED', 'PREPARING', 'RUNNING', 'STOPPING'];
@@ -67,6 +68,7 @@ const OWNER_TYPE: Record<string, { type: string; ownerId: (d: JobItem) => string
   TRAINING_DATASET_SCAN: { type: 'JOB_EXECUTION', ownerId: (d) => d.id },
   MODEL_INGEST: { type: 'JOB_EXECUTION', ownerId: (d) => d.id },
   MODEL_CONVERSION: { type: 'MODEL_CONVERSION', ownerId: (d) => d.resource_id },
+  INFERENCE: { type: 'INFERENCE_RUN_DATASET', ownerId: (d) => d.resource_id },
 };
 
 interface ArtifactItem {

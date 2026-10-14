@@ -32,6 +32,7 @@ export const JOB_TYPE_LABEL: Record<string, string> = {
   BENCHMARK_EVALUATION: 'Benchmark Eval',
   MODEL_INGEST: 'Model Ingest',
   MODEL_CONVERSION: 'Model Conversion',
+  INFERENCE: 'Inference',
 };
 
 const ACTIVE_EXEC_STATUS: string[] = ['ASSIGNED', 'CLAIMED', 'PREPARING', 'RUNNING'];
@@ -104,6 +105,17 @@ JOIN app.model_conversions mc ON je.job_id = mc.id
 JOIN app.models m ON mc.model_id = m.id
 WHERE je.job_type = 'MODEL_CONVERSION'`;
 
+const INFERENCE_Q = `SELECT je.id::text, 'INFERENCE'::text AS job_type,
+  ('Infer: ' || sd.name || ' in ' || ir.name)::text AS name, ird.status::text AS business_status,
+  je.status::text AS execution_status, je.progress_percent::text, je.progress_message::text,
+  sd.task_type::text, ird.id::text AS resource_id, je.worker_id::text, je.error_message::text,
+  je.started_at::text, je.finished_at::text, je.created_at::text
+FROM app.job_executions je
+JOIN app.inference_run_datasets ird ON je.job_id = ird.id
+JOIN app.inference_runs ir ON ird.inference_run_id = ir.id
+JOIN app.source_datasets sd ON ird.source_dataset_id = sd.id
+WHERE je.job_type = 'INFERENCE'`;
+
 const ALL_QUERIES: { type: string; sql: string }[] = [
   { type: 'TRAINING', sql: TRAINING_Q },
   { type: 'DATASET_BUILD', sql: BUILD_Q },
@@ -111,6 +123,7 @@ const ALL_QUERIES: { type: string; sql: string }[] = [
   { type: 'BENCHMARK_EVALUATION', sql: BENCH_Q },
   { type: 'MODEL_INGEST', sql: INGEST_Q },
   { type: 'MODEL_CONVERSION', sql: CONVERSION_Q },
+  { type: 'INFERENCE', sql: INFERENCE_Q },
 ];
 
 function matches(item: JobItem, params: {

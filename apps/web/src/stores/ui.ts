@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type Page = 'dashboard' | 'datasets' | 'models' | 'training' | 'benchmarks' | 'jobs' | 'notifications' | 'admin' | 'account';
+export type Page = 'dashboard' | 'datasets' | 'models' | 'training' | 'benchmarks' | 'inference' | 'jobs' | 'notifications' | 'admin' | 'account';
 
 export type AdminTab = 'users' | 'dataset-types' | 'audit' | 'settings' | 'workers' | 'backup';
 
