@@ -14,6 +14,7 @@ BENCHMARK_EVENT = "job.benchmark.dispatch"
 MODEL_SCAN_EVENT = "job.model_scan.dispatch"
 CONVERSION_EVENT = "job.conversion.dispatch"
 MODEL_DELETE_EVENT = "job.model_delete.dispatch"
+INFERENCE_EVENT = "job.inference.dispatch"
 
 
 class TrainingWorker:
@@ -77,7 +78,8 @@ class TrainingWorker:
 
     def _handle(self, fields: dict) -> None:
         event_type = fields.get("event_type")
-        if event_type not in (TRAINING_EVENT, BENCHMARK_EVENT, MODEL_SCAN_EVENT, CONVERSION_EVENT, MODEL_DELETE_EVENT):
+        if event_type not in (TRAINING_EVENT, BENCHMARK_EVENT, MODEL_SCAN_EVENT, CONVERSION_EVENT, MODEL_DELETE_EVENT,
+                              INFERENCE_EVENT):
             return
         import json
         payload = json.loads(fields.get("payload", "{}"))
@@ -94,6 +96,9 @@ class TrainingWorker:
             elif event_type == MODEL_DELETE_EVENT:
                 from .model_delete import ModelDeleter
                 ModelDeleter(conn, self.cfg).run(payload)
+            elif event_type == INFERENCE_EVENT:
+                from .inferencer import Inferencer
+                Inferencer(conn, self.storage, self.cfg).run(payload)
             else:
                 Benchmarker(conn, self.storage, self.cfg).run(payload)
 

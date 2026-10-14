@@ -1,6 +1,6 @@
 # 模型推論比對（單機版）實作規劃
 
-> 狀態：第一階段完成（2026-10-14），未部署
+> 狀態：第一、二階段完成（2026-10-14），未部署
 > 範圍：只在 Model Training Platform（MTP）內完成 **Inference → Compare → Download**。
 > 回填 Dataset Manager（DM）等跨系統串接**不在本次範圍**，之後另外討論（見 §9）。
 
@@ -195,10 +195,10 @@ ZIP 內容：
 | 階段 | 內容 | 完成時可驗證 |
 |---|---|---|
 | 1 | migration 011、shared-types、`POST/GET /inference-runs`、outbox dispatch | 建 run 後 job 進到 Redis |
-| 2 | `Inferencer`：推論 + 比對 + 寫 `inference_diffs` + 進度 | DB 裡有正確的差異列；用小 dataset 人工核對 |
+| 2 | `Inferencer`：推論 + 比對 + 寫 `inference_diffs` + 進度；scheduler 回收中斷的 job（從第 5 階段提前） | DB 裡有正確的差異列；用小 dataset 人工核對 |
 | 3 | ZIP 打包 + artifact + 下載端點；Runs 列表 / 詳情頁 | 下載的 ZIP 內容正確，可直接匯入 DM 當新 dataset |
 | 4 | Compare 頁 | 差異預覽與 DB 一致 |
-| 5 | stop / retry / scheduler 回收、`qa/run.mjs` 加 smoke | 三個瀏覽器引擎都過 |
+| 5 | stop / retry API、`qa/run.mjs` 加 smoke | 三個瀏覽器引擎都過 |
 
 每個階段都可單獨部署。
 

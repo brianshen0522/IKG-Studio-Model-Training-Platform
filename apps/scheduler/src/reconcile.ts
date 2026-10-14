@@ -117,6 +117,115 @@ async function finalizeBenchmarkOnLost(
   return true;
 }
 
+/**
+ * An inference job whose execution was lost: the same recovery as for a
+ * benchmark evaluation, so the run does not hang in RUNNING. A job that was
+ * being stopped ends STOPPED rather than FAILED, which is what it was headed
+ * for. The run is finalised with the worker's rule (inferencer._finalize_run).
+ * No notification, for the same reason as above.
+ */
+async function finalizeInferenceOnLost(
+  trx: Kysely<Database>,
+  runDatasetId: string,
+  correlationId: string,
+): Promise<boolean> {
+  const row = await trx
+    .selectFrom('inference_run_datasets')
+    .select(['inference_run_id', 'status'])
+    .where('id', '=', runDatasetId)
+    .executeTakeFirst();
+  if (!row) return false;
+  const runId = row.inference_run_id;
+
+  const stopping = row.status === 'STOPPING';
+  const moved = await trx
+    .updateTable('inference_run_datasets')
+    .set(
+      stopping
+        ? { status: 'STOPPED', finished_at: sql`now()`, stopped_at: sql`now()` }
+        : {
+            status: 'FAILED',
+            finished_at: sql`now()`,
+            failure_code: 'EXECUTION_LOST',
+            failure_message: 'Execution lost (heartbeat timeout)',
+          },
+    )
+    .where('id', '=', runDatasetId)
+    .where('status', 'in', ['QUEUED', 'RUNNING', 'STOPPING'])
+    .executeTakeFirst();
+  if (!moved || moved.numUpdatedRows === 0n) return false;
+
+  await trx
+    .insertInto('audit_logs')
+    .values({
+      actor_type: 'SYSTEM',
+      actor_ref: 'scheduler',
+      action_code: stopping ? 'INFERENCE_DATASET_STOPPED' : 'INFERENCE_DATASET_FAILED',
+      resource_type_code: 'INFERENCE_RUN_DATASET',
+      resource_id: runDatasetId,
+      result: stopping ? 'SUCCESS' : 'FAILURE',
+      correlation_id: correlationId,
+      error_code: stopping ? null : 'EXECUTION_LOST',
+      metadata: { inference_run_id: runId },
+    })
+    .execute();
+
+  const counts = await trx
+    .selectFrom('inference_run_datasets')
+    .select([
+      sql<string>`count(*) filter (where status = 'COMPLETED')`.as('completed'),
+      sql<string>`count(*) filter (where status = 'FAILED')`.as('failed'),
+      sql<string>`count(*) filter (where status = 'STOPPED')`.as('stopped'),
+      sql<string>`count(*) filter (where status not in ('COMPLETED','FAILED','CANCELLED','STOPPED'))`.as('pending'),
+      sql<string>`count(*)`.as('total'),
+    ])
+    .where('inference_run_id', '=', runId)
+    .executeTakeFirstOrThrow();
+  const completed = Number(counts.completed);
+  const failedCount = Number(counts.failed);
+  const stopped = Number(counts.stopped);
+  const pending = Number(counts.pending);
+  const total = Number(counts.total);
+
+  await trx
+    .updateTable('inference_runs')
+    .set({ completed_count: completed, failed_count: failedCount, updated_at: sql`now()` })
+    .where('id', '=', runId)
+    .execute();
+
+  if (pending === 0 && total > 0) {
+    const runStatus =
+      stopped > 0 ? 'STOPPED' : failedCount === 0 ? 'COMPLETED' : completed > 0 ? 'PARTIALLY_FAILED' : 'FAILED';
+    const finalised = await trx
+      .updateTable('inference_runs')
+      .set({
+        status: runStatus,
+        finished_at: sql`now()`,
+        stopped_at: runStatus === 'STOPPED' ? sql`now()` : sql`stopped_at`,
+        updated_at: sql`now()`,
+      })
+      .where('id', '=', runId)
+      .where('status', 'in', ['RUNNING', 'STOPPING'])
+      .executeTakeFirst();
+    if (finalised && finalised.numUpdatedRows > 0n) {
+      await trx
+        .insertInto('audit_logs')
+        .values({
+          actor_type: 'SYSTEM',
+          actor_ref: 'scheduler',
+          action_code: 'INFERENCE_RUN_FINISHED',
+          resource_type_code: 'INFERENCE_RUN',
+          resource_id: runId,
+          result: runStatus === 'COMPLETED' || runStatus === 'STOPPED' ? 'SUCCESS' : 'FAILURE',
+          correlation_id: correlationId,
+          metadata: { status: runStatus, completed, failed: failedCount },
+        })
+        .execute();
+    }
+  }
+  return true;
+}
+
 export async function reconcileStaleExecutions(
   db: Kysely<Database>,
   staleTimeoutS: number,
@@ -180,6 +289,12 @@ export async function reconcileStaleExecutions(
         // never hangs in RUNNING because a worker died.
         if (candidate.job_type === 'BENCHMARK_EVALUATION') {
           const done = await finalizeBenchmarkOnLost(trx, candidate.job_id, candidate.correlation_id);
+          if (done) result.failed += 1;
+          return;
+        }
+
+        if (candidate.job_type === 'INFERENCE') {
+          const done = await finalizeInferenceOnLost(trx, candidate.job_id, candidate.correlation_id);
           if (done) result.failed += 1;
           return;
         }
