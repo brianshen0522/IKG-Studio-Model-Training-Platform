@@ -34,6 +34,7 @@ const BUILT_DS = `qa-built-${TAG}`;
 const REGISTERED_DS = `qa-registered-${TAG}`;
 const TRAIN_JOB = `QA Train ${TAG}`;
 const BENCH_RUN = `QA Bench ${TAG}`;
+const INFER_RUN = `QA Infer ${TAG}`;
 // Two sources sharing one classes.txt — merging them exercises the class-compat path
 // without tripping the "same index means different things" guard.
 const BUILD_SOURCES = (process.env.QA_BUILD_SOURCES || 'sb02_260523,sb02_260531').split(',');
@@ -254,6 +255,9 @@ const NEEDS = {
   'benchmark': ['dataset-build', 'model-scan'],
   'training-detail': ['training'],
   'benchmark-detail': ['benchmark'],
+  // The trained model is the one inferred with; its classes are the build sources'.
+  'inference': ['training'],
+  'inference-detail': ['inference'],
   'user-actions': ['admin-user'],
   'datasettype-actions': ['admin-dataset-type'],
   'notifications': ['training'],
@@ -295,7 +299,7 @@ await run('login', async () => {
   if (await page.getByRole('heading', { name: 'Dashboard' }).count()) ok('dashboard shown'); else bug('no dashboard after login');
 });
 
-for (const n of ['Source Datasets', 'Training Datasets', 'Models', 'Training', 'Benchmarks', 'Jobs', 'Notifications', 'Admin', 'Home']) {
+for (const n of ['Source Datasets', 'Training Datasets', 'Models', 'Training', 'Benchmarks', 'Inference', 'Jobs', 'Notifications', 'Admin', 'Home']) {
   await run('nav-' + n, async () => { await nav(n); ok('navigated ' + n); });
 }
 
@@ -505,6 +509,54 @@ await run('benchmark-detail', async () => {
   if (await page.getByText('← Back').count()) ok('benchmark detail opens'); else bug('benchmark detail did not open');
   if (await page.getByText('Evaluations').count()) ok('evaluations section present'); else bug('no evaluations section');
   await page.getByText('← Back').click().catch(() => {}); await sleep(500);
+});
+
+await run('inference', async () => {
+  await nav('Inference'); await clickBtn('New Inference Run');
+  // Five-step wizard like the benchmark one: Dataset Type & Name, Select Model,
+  // Select Source Datasets, Device, Review.
+  await selectContaining(modal(), 'Dataset Type (Required)', DTYPE);
+  await sleep(800);
+  await setField(modal(), 'Run Name (Required)', INFER_RUN); await sleep(400);
+  const next = () => modal().getByRole('button', { name: 'Next', exact: true }).click();
+  await next(); await sleep(1200);                       // -> Select Model
+  const m = modal().locator('.check-row', { hasText: TRAIN_JOB }).first();
+  if (await m.count()) await m.locator('input').check(); else bug('trained model not offered for inference');
+  await next(); await sleep(1200);                       // -> Select Source Datasets
+  // Exact name: QA has both "vehicles" and "vehicles-b", and a contains match took
+  // whichever came first.
+  const src = modal().locator('.check-row').filter({ has: page.getByText(BUILD_SOURCES[0], { exact: true }) }).first();
+  if (await src.count()) await src.locator('input').check(); else bug(`source "${BUILD_SOURCES[0]}" not offered for inference`);
+  await next(); await sleep(800);                        // -> Device
+  await modal().locator('.device-trigger').first().click(); await sleep(400);
+  await page.locator('.device-row', { hasText: 'Auto-detect' }).first().click(); await sleep(400);
+  await next(); await sleep(800);                        // -> Review
+  await modal().getByRole('button', { name: 'Start Inference' }).click(); await sleep(2000);
+  const s = await pollRow('Inference', INFER_RUN, ['COMPLETED', 'PARTIALLY_FAILED', 'FAILED'], 40, 3000);
+  if (s === 'COMPLETED') ok('inference COMPLETED'); else bug('inference not COMPLETED (last=' + s + ')');
+});
+
+await run('inference-detail', async () => {
+  await nav('Inference');
+  await page.locator('.job-card', { hasText: INFER_RUN }).first().click(); await sleep(1000);
+  if (await page.getByRole('heading', { name: INFER_RUN }).count()) ok('inference detail opens'); else bug('inference detail did not open');
+  const row = page.locator('tr', { hasText: BUILD_SOURCES[0] }).first();
+  if (await row.count()) ok('dataset row listed'); else bug('dataset row missing on inference detail');
+  // A one-epoch model at conf 0.7 usually predicts nothing, so every labelled image
+  // differs — but a dataset where it agrees everywhere has nothing to compare or
+  // download, and that is not a bug.
+  const compare = row.getByRole('button', { name: 'Compare' });
+  if (await compare.count()) {
+    if (await row.getByRole('link', { name: 'Download ZIP' }).count()) ok('diff ZIP offered'); else bug('differences but no ZIP link');
+    await compare.click(); await sleep(1500);
+    if (await page.getByText('Original labels').count() && await page.getByText('Model prediction').count()) ok('compare view opens');
+    else bug('compare view did not open');
+    if ((await page.locator('canvas').count()) >= 2) ok('both compare canvases present'); else bug('compare canvases missing');
+    await page.getByText('← Back to run').click().catch(() => {}); await sleep(500);
+  } else if (await row.getByText('No differences').count()) {
+    skip('model agreed with every label; nothing to compare');
+  } else bug('neither Compare nor "No differences" on a completed dataset');
+  await page.getByText('← Back to Inference').click().catch(() => {}); await sleep(500);
 });
 
 await run('user-actions', async () => {

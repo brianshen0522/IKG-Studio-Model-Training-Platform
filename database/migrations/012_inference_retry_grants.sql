@@ -1,0 +1,11 @@
+-- Retrying an inference run clears the failed or stopped attempt's diff rows
+-- before queueing the dataset again. The worker only ever writes the images
+-- that differ, so without this an image that differed on the first attempt
+-- and matches on the second would still be listed, in the compare page and in
+-- the ZIP. The backend does it, in the same transaction that re-queues the
+-- job; 011 granted it SELECT only.
+--
+-- These rows are derived results, not artifacts or audit (AGENTS.md rules 3
+-- and 4): the ZIP built from a completed attempt is the immutable record, and
+-- a completed dataset is never retried.
+GRANT DELETE ON TABLE app.inference_diffs TO backend_role;

@@ -150,6 +150,148 @@ export class InferenceService {
     });
   }
 
+  async requestStop(id: string, actor: Actor) {
+    const correlationId = randomUUID();
+    return this.db.transaction().execute(async (trx) => {
+      const run = await trx.selectFrom('inference_runs').select(['id', 'status'])
+        .where('id', '=', id).forUpdate().executeTakeFirst();
+      if (!run) throw err(errorCode.INFERENCE_RUN_NOT_FOUND, 'inference run not found', 404);
+
+      // Running: the worker stops at its next chunk and finalises the run. A
+      // dataset still waiting its turn is stopped by the worker when it claims it.
+      if (run.status === 'RUNNING') {
+        await trx.updateTable('inference_runs').set({
+          status: 'STOPPING', stop_requested_at: sql`now()`, stop_requested_by_user_id: actor.id, updated_at: sql`now()`,
+        }).where('id', '=', id).execute();
+        await trx.updateTable('inference_run_datasets').set({ status: 'STOPPING' })
+          .where('inference_run_id', '=', id).where('status', 'in', ['QUEUED', 'RUNNING']).execute();
+        await this.auditService.append({
+          actorType: 'USER', actorUserId: actor.id, actionCode: 'INFERENCE_RUN_STOP_REQUESTED',
+          resourceTypeCode: 'INFERENCE_RUN', resourceId: id, result: 'SUCCESS', correlationId,
+        }, trx);
+        return { id, status: 'STOPPING' as const };
+      }
+      // Nothing started yet: cancel outright. The queued jobs find their dataset
+      // CANCELLED when a worker claims them and give up.
+      if (run.status === 'QUEUED') {
+        await trx.updateTable('inference_runs').set({
+          status: 'CANCELLED', finished_at: sql`now()`, updated_at: sql`now()`,
+        }).where('id', '=', id).execute();
+        await trx.updateTable('inference_run_datasets').set({ status: 'CANCELLED', finished_at: sql`now()` })
+          .where('inference_run_id', '=', id).where('status', '=', 'QUEUED').execute();
+        await this.auditService.append({
+          actorType: 'USER', actorUserId: actor.id, actionCode: 'INFERENCE_RUN_CANCELLED',
+          resourceTypeCode: 'INFERENCE_RUN', resourceId: id, result: 'SUCCESS', correlationId,
+        }, trx);
+        return { id, status: 'CANCELLED' as const };
+      }
+      throw err(errorCode.INFERENCE_NOT_STOPPABLE, `run in ${run.status} cannot be stopped or cancelled`, 409);
+    });
+  }
+
+  private static readonly RETRYABLE_RUN = new Set(['PARTIALLY_FAILED', 'FAILED', 'CANCELLED', 'STOPPED']);
+  private static readonly RETRYABLE_DATASET = ['FAILED', 'STOPPED', 'CANCELLED'] as const;
+
+  /**
+   * Re-run the datasets of a finished run that did not complete, in place: same
+   * run and dataset rows, a new job_executions attempt for each. A completed
+   * dataset keeps its results and its ZIP; inferring it again would only redo
+   * the same work.
+   *
+   * The previous attempt's diff rows are deleted first. The worker writes only
+   * the images that differ, so a row left from the old attempt for an image
+   * that now matches would never be overwritten. Each retried dataset is also
+   * re-pointed at the source's current scan, since that is what it will read.
+   */
+  async retry(id: string, actor: Actor) {
+    const correlationId = randomUUID();
+    return this.db.transaction().execute(async (trx) => {
+      const run = await trx.selectFrom('inference_runs')
+        .select(['id', 'status', 'model_id', 'model_checksum_snapshot', 'conf_threshold', 'iou_threshold'])
+        .where('id', '=', id).forUpdate().executeTakeFirst();
+      if (!run) throw err(errorCode.INFERENCE_RUN_NOT_FOUND, 'inference run not found', 404);
+      if (!InferenceService.RETRYABLE_RUN.has(run.status)) {
+        throw err(errorCode.INFERENCE_NOT_RETRYABLE,
+          run.status === 'COMPLETED'
+            ? 'every dataset of this run completed; start a new run to infer again'
+            : `run is ${run.status}, only a finished run with unfinished datasets can be retried`, 409);
+      }
+
+      const model = await trx.selectFrom('models').select(['status', 'checksum'])
+        .where('id', '=', run.model_id).executeTakeFirst();
+      if (!model || model.status !== 'AVAILABLE') {
+        throw err(errorCode.INFERENCE_MODEL_NOT_AVAILABLE, 'the run\'s model is no longer AVAILABLE', 409);
+      }
+      if (model.checksum !== run.model_checksum_snapshot) {
+        throw err(errorCode.INFERENCE_MODEL_CHANGED,
+          'the model file has changed since this run was created; start a new run so its results describe one model', 409);
+      }
+
+      const datasets = await trx.selectFrom('inference_run_datasets as d')
+        .innerJoin('source_datasets as s', 's.id', 'd.source_dataset_id')
+        .select(['d.id', 'd.source_dataset_id', 's.status as source_status', 's.latest_scan_id', 's.name'])
+        .where('d.inference_run_id', '=', id)
+        .where('d.status', 'in', [...InferenceService.RETRYABLE_DATASET])
+        .execute();
+      if (datasets.length === 0) throw err(errorCode.INFERENCE_NOT_RETRYABLE, 'no dataset of this run needs retrying', 409);
+      for (const d of datasets) {
+        if (d.source_status !== 'READY' || !d.latest_scan_id) {
+          throw err(errorCode.SOURCE_DATASET_NOT_READY, `source dataset ${d.name} is not READY`, 409);
+        }
+      }
+
+      for (const d of datasets) {
+        await trx.deleteFrom('inference_diffs').where('inference_run_dataset_id', '=', d.id).execute();
+        await trx.updateTable('inference_run_datasets').set({
+          status: 'QUEUED', source_scan_id_snapshot: d.latest_scan_id,
+          image_count: 0, processed_count: 0, diff_image_count: 0,
+          missing_count: 0, extra_count: 0, class_mismatch_count: 0, zip_artifact_id: null,
+          failure_code: null, failure_message: null, started_at: null, finished_at: null, stopped_at: null,
+        }).where('id', '=', d.id).execute();
+
+        const last = await trx.selectFrom('job_executions').select('attempt_number')
+          .where('job_type', '=', 'INFERENCE').where('job_id', '=', d.id)
+          .orderBy('attempt_number', 'desc').limit(1).executeTakeFirst();
+        const attempt = (last?.attempt_number ?? 0) + 1;
+        const assignmentToken = randomUUID();
+        const snapshot = {
+          inference_run_dataset_id: d.id, model_id: run.model_id, model_checksum: run.model_checksum_snapshot,
+          source_dataset_id: d.source_dataset_id, source_scan_id: d.latest_scan_id,
+          conf_threshold: run.conf_threshold, iou_threshold: run.iou_threshold,
+        };
+        const { id: jobExecutionId } = await trx.insertInto('job_executions').values({
+          job_type: 'INFERENCE', job_id: d.id, attempt_number: attempt, assignment_token: assignmentToken,
+          configuration_snapshot: snapshot as Record<string, unknown>,
+          configuration_hash: createHash('sha256').update(JSON.stringify(snapshot)).digest('hex'),
+          correlation_id: correlationId,
+        }).returning('id').executeTakeFirstOrThrow();
+        await this.outboxService.enqueue({
+          eventType: DISPATCH_EVENT, aggregateTypeCode: 'JOB_EXECUTION', aggregateId: jobExecutionId,
+          payload: {
+            job_execution_id: jobExecutionId, assignment_token: assignmentToken, job_type: 'INFERENCE',
+            inference_run_dataset_id: d.id, inference_run_id: id,
+            correlation_id: correlationId, attempt_number: attempt,
+          } as Record<string, unknown>,
+          correlationId,
+        }, trx);
+      }
+
+      await trx.updateTable('inference_runs').set({
+        status: 'QUEUED', queued_at: sql`now()`, finished_at: null,
+        stop_requested_at: null, stop_requested_by_user_id: null, stopped_at: null,
+        failed_count: 0, updated_at: sql`now()`,
+      }).where('id', '=', id).execute();
+
+      await this.auditService.append({
+        actorType: 'USER', actorUserId: actor.id, actionCode: 'INFERENCE_RUN_RETRIED',
+        resourceTypeCode: 'INFERENCE_RUN', resourceId: id, result: 'SUCCESS', correlationId,
+        metadata: { datasets: datasets.map((d) => d.id) },
+      }, trx);
+
+      return trx.selectFrom('inference_runs').select(RUN_FIELDS).where('id', '=', id).executeTakeFirstOrThrow();
+    });
+  }
+
   private async runDataset(runId: string, rdId: string) {
     const row = await this.db.selectFrom('inference_run_datasets as d')
       .innerJoin('source_datasets as s', 's.id', 'd.source_dataset_id')

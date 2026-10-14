@@ -6,6 +6,7 @@ import { EmptyState } from '../components/EmptyState';
 import { formatDate } from '../lib/format';
 import { useUrlParam } from '../lib/urlState';
 import { InferenceCompare } from '../components/InferenceCompare';
+import { InferenceRunActions } from '../components/InferenceRunActions';
 
 interface RunDataset {
   id: string;
@@ -103,6 +104,7 @@ export function InferenceRunDetail({ id, onBack }: { id: string; onBack: () => v
                 <p style={{ margin: '4px 0 0 0', color: 'var(--text-sub)', fontSize: '13px' }}>{data.description}</p>
               )}
             </div>
+            <InferenceRunActions run={data} />
           </header>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '20px' }}>

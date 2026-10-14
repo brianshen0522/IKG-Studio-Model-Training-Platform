@@ -1,6 +1,6 @@
 # 模型推論比對（單機版）實作規劃
 
-> 狀態：第一至四階段完成（2026-10-14），未部署
+> 狀態：五個階段皆完成（2026-10-14），未部署
 > 範圍：只在 Model Training Platform（MTP）內完成 **Inference → Compare → Download**。
 > 回填 Dataset Manager（DM）等跨系統串接**不在本次範圍**，之後另外討論（見 §9）。
 
@@ -198,7 +198,7 @@ ZIP 內容：
 | 2 | `Inferencer`：推論 + 比對 + 寫 `inference_diffs` + 進度；scheduler 回收中斷的 job（從第 5 階段提前） | DB 裡有正確的差異列；用小 dataset 人工核對 |
 | 3 | ZIP 打包 + artifact + 下載端點；Runs 列表 / 詳情頁 | 下載的 ZIP 內容正確，可直接匯入 DM 當新 dataset |
 | 4 | Compare 頁 | 差異預覽與 DB 一致 |
-| 5 | stop / retry API、`qa/run.mjs` 加 smoke | 三個瀏覽器引擎都過 |
+| 5 | stop / retry API（retry 只重跑未完成的 dataset，先清掉上次的差異列；migration 012）、`qa/run.mjs` 加 smoke | 三個瀏覽器引擎都過 |
 
 每個階段都可單獨部署。
 

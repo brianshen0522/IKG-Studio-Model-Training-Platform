@@ -58,6 +58,20 @@ export class InferenceController {
     };
   }
 
+  @Post(':id/stop')
+  @HttpCode(202)
+  stop(@Param('id') id: string, @Req() req: Request) {
+    if (!UUID_RE.test(id)) throw notFound();
+    return this.service.requestStop(id, actorOf(req));
+  }
+
+  @Post(':id/retry')
+  @HttpCode(202)
+  retry(@Param('id') id: string, @Req() req: Request) {
+    if (!UUID_RE.test(id)) throw notFound();
+    return this.service.retry(id, actorOf(req));
+  }
+
   @Get(':id')
   get(@Param('id') id: string) {
     if (!UUID_RE.test(id)) throw notFound();

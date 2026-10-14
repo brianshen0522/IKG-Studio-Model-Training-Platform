@@ -9,6 +9,7 @@ import { SearchableSelect, type SelectOption } from '../components/SearchableSel
 import { formatDate } from '../lib/format';
 import { useUrlParam } from '../lib/urlState';
 import { InferenceRunDetail } from './InferenceRunDetail';
+import { InferenceRunActions } from '../components/InferenceRunActions';
 
 interface InferenceRun {
   id: string;
@@ -34,6 +35,7 @@ const STATUS_OPTIONS: SelectOption[] = [
   { value: 'PARTIALLY_FAILED', label: 'Partially Failed' },
   { value: 'FAILED', label: 'Failed' },
   { value: 'STOPPED', label: 'Stopped' },
+  { value: 'CANCELLED', label: 'Cancelled' },
 ];
 
 export function InferencePage() {
@@ -146,7 +148,10 @@ export function InferencePage() {
                         )}
                       </div>
                     </div>
-                    <StatusBadge status={r.status} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <StatusBadge status={r.status} />
+                      <InferenceRunActions run={r} />
+                    </div>
                   </div>
 
                   <div style={{ marginTop: '12px' }}>
