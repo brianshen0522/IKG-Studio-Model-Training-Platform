@@ -13,6 +13,7 @@ import { InferenceRunActions } from '../components/InferenceRunActions';
 
 interface InferenceRun {
   id: string;
+  created_by_user_id: string;
   name: string;
   description: string | null;
   status: string;

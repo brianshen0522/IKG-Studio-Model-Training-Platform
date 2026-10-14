@@ -5,6 +5,8 @@ import type { Database } from '@model-trainer/db';
 import { errorCode } from '@model-trainer/shared-types';
 import { AuditService } from '../audit/audit.service';
 import { OutboxService } from '../outbox/outbox.service';
+import { ObjectStoreService } from '../storage/object-store.service';
+import { StructuredLoggerService } from '../common/logger/structured-logger.service';
 import { createHash, randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -43,7 +45,10 @@ export class InferenceService {
     @Inject(DB_PROVIDER) private readonly db: Kysely<Database>,
     private readonly auditService: AuditService,
     private readonly outboxService: OutboxService,
+    private readonly store: ObjectStoreService,
   ) {}
+
+  private readonly logger = new StructuredLoggerService();
 
   /**
    * One run, one job per source dataset. Whether the model's class names match
@@ -94,7 +99,8 @@ export class InferenceService {
 
       const dup = await trx.selectFrom('inference_runs').select('id')
         .where('dataset_type_id', '=', model.dataset_type_id)
-        .where(sql`lower(name)`, '=', name.toLowerCase()).executeTakeFirst();
+        .where(sql`lower(name)`, '=', name.toLowerCase())
+        .where('deleted_at', 'is', null).executeTakeFirst();
       if (dup) {
         throw err(errorCode.INFERENCE_NAME_TAKEN, `an inference run named "${name}" already exists in this dataset type`, 409);
       }
@@ -154,7 +160,7 @@ export class InferenceService {
     const correlationId = randomUUID();
     return this.db.transaction().execute(async (trx) => {
       const run = await trx.selectFrom('inference_runs').select(['id', 'status'])
-        .where('id', '=', id).forUpdate().executeTakeFirst();
+        .where('id', '=', id).where('deleted_at', 'is', null).forUpdate().executeTakeFirst();
       if (!run) throw err(errorCode.INFERENCE_RUN_NOT_FOUND, 'inference run not found', 404);
 
       // Running: the worker stops at its next chunk and finalises the run. A
@@ -208,7 +214,7 @@ export class InferenceService {
     return this.db.transaction().execute(async (trx) => {
       const run = await trx.selectFrom('inference_runs')
         .select(['id', 'status', 'model_id', 'model_checksum_snapshot', 'conf_threshold', 'iou_threshold'])
-        .where('id', '=', id).forUpdate().executeTakeFirst();
+        .where('id', '=', id).where('deleted_at', 'is', null).forUpdate().executeTakeFirst();
       if (!run) throw err(errorCode.INFERENCE_RUN_NOT_FOUND, 'inference run not found', 404);
       if (!InferenceService.RETRYABLE_RUN.has(run.status)) {
         throw err(errorCode.INFERENCE_NOT_RETRYABLE,
@@ -292,6 +298,88 @@ export class InferenceService {
     });
   }
 
+  private static readonly UNDELETABLE = new Set(['RUNNING', 'STOPPING']);
+
+  /**
+   * Delete a run (docs/inference-delete-plan.md). The run row is soft-deleted so
+   * the job executions, audit rows and notifications that name it keep
+   * resolving; its diff rows and its ZIPs are deleted outright, which is what
+   * frees the space. The ZIP is a local exception to AGENTS.md rule 3, the same
+   * one ModelsService.deleteModel makes for a model's conversions.
+   *
+   * A run that is still being inferred has to be stopped first, so no worker is
+   * writing diffs while they are removed. A queued one can be deleted at once:
+   * the most common reason to delete is having just started a run with the
+   * wrong options. Its datasets are cancelled in the same transaction, and a
+   * worker that later claims one finds it CANCELLED and gives up.
+   *
+   * Objects are removed after the commit, best effort: an object left behind
+   * is wasted space, whereas a row pointing at a removed object is a broken
+   * download.
+   */
+  async deleteRun(id: string, actor: Actor) {
+    const correlationId = randomUUID();
+    let objects: { bucket: string; key: string }[] = [];
+
+    const result = await this.db.transaction().execute(async (trx) => {
+      const run = await trx.selectFrom('inference_runs').select(['id', 'name', 'status', 'created_by_user_id'])
+        .where('id', '=', id).where('deleted_at', 'is', null).forUpdate().executeTakeFirst();
+      if (!run) throw err(errorCode.INFERENCE_RUN_NOT_FOUND, 'inference run not found', 404);
+      if (actor.role !== 'ADMIN' && run.created_by_user_id !== actor.id) {
+        throw err(errorCode.AUTH_PERMISSION_DENIED, 'only an admin or the user who started this run can delete it', 403);
+      }
+      if (InferenceService.UNDELETABLE.has(run.status)) {
+        throw err(errorCode.INFERENCE_NOT_DELETABLE,
+          `run is ${run.status}; stop it first and delete it once it has stopped`, 409);
+      }
+
+      const datasets = await trx.selectFrom('inference_run_datasets').select(['id', 'status', 'diff_image_count'])
+        .where('inference_run_id', '=', id).execute();
+      const rdIds = datasets.map((d) => d.id);
+
+      // Every ZIP the run's datasets own, not only the current zip_artifact_id:
+      // whatever an earlier attempt left belongs to the run all the same.
+      const artifacts = rdIds.length
+        ? await trx.selectFrom('artifacts').select(['id', 'bucket_name', 'object_key', 'file_size_bytes'])
+          .where('owner_type_code', '=', 'INFERENCE_RUN_DATASET').where('owner_id', 'in', rdIds).execute()
+        : [];
+      objects = artifacts.map((a) => ({ bucket: a.bucket_name, key: a.object_key }));
+
+      let diffRows = 0;
+      if (rdIds.length) {
+        await trx.updateTable('inference_run_datasets').set({ zip_artifact_id: null })
+          .where('inference_run_id', '=', id).execute();
+        await trx.updateTable('inference_run_datasets').set({ status: 'CANCELLED', finished_at: sql`now()` })
+          .where('inference_run_id', '=', id).where('status', '=', 'QUEUED').execute();
+        const deleted = await trx.deleteFrom('inference_diffs').where('inference_run_dataset_id', 'in', rdIds)
+          .executeTakeFirst();
+        diffRows = Number(deleted.numDeletedRows);
+      }
+      if (artifacts.length) {
+        await trx.deleteFrom('artifacts').where('id', 'in', artifacts.map((a) => a.id)).execute();
+      }
+
+      await trx.updateTable('inference_runs').set({
+        status: 'DELETED', deleted_at: sql`now()`, deleted_by_user_id: actor.id,
+        finished_at: sql`coalesce(finished_at, now())`, updated_at: sql`now()`,
+      }).where('id', '=', id).execute();
+
+      const zipBytes = artifacts.reduce((n, a) => n + Number(a.file_size_bytes), 0);
+      await this.auditService.append({
+        actorType: 'USER', actorUserId: actor.id, actionCode: 'INFERENCE_RUN_DELETED',
+        resourceTypeCode: 'INFERENCE_RUN', resourceId: id, result: 'SUCCESS', correlationId,
+        beforeSnapshot: { name: run.name, status: run.status },
+        metadata: { datasets: rdIds.length, diff_rows: diffRows, zip_artifacts: artifacts.length, zip_bytes: zipBytes },
+      }, trx);
+      return { id, status: 'DELETED' as const, diff_rows: diffRows, zip_bytes: zipBytes };
+    });
+
+    await Promise.all(objects.map((o) => this.store.removeObject(o.bucket, o.key).catch((e: unknown) => {
+      this.logger.warn('inference ZIP object not removed', { run_id: id, object_key: o.key, error: String(e).slice(0, 200) });
+    })));
+    return result;
+  }
+
   private async runDataset(runId: string, rdId: string) {
     const row = await this.db.selectFrom('inference_run_datasets as d')
       .innerJoin('source_datasets as s', 's.id', 'd.source_dataset_id')
@@ -300,7 +388,12 @@ export class InferenceService {
         's.name as source_dataset_name', 's.relative_path', 's.images_relative_path',
         's.manual_classes_override', 's.latest_scan_id',
       ])
-      .where('d.id', '=', rdId).where('d.inference_run_id', '=', runId).executeTakeFirst();
+      .where('d.id', '=', rdId).where('d.inference_run_id', '=', runId)
+      .where(({ exists, selectFrom }) => exists(
+        selectFrom('inference_runs as r').select('r.id')
+          .whereRef('r.id', '=', 'd.inference_run_id').where('r.deleted_at', 'is', null),
+      ))
+      .executeTakeFirst();
     if (!row) throw err(errorCode.INFERENCE_RUN_NOT_FOUND, 'inference run dataset not found', 404);
     return row;
   }
@@ -400,7 +493,7 @@ export class InferenceService {
       .leftJoin('dataset_types as t', 't.id', 'r.dataset_type_id')
       .select(RUN_FIELDS.map((f) => `r.${f}` as const))
       .select(['m.name as model_name', 't.name as dataset_type_name'])
-      .where('r.id', '=', id).executeTakeFirst();
+      .where('r.id', '=', id).where('r.deleted_at', 'is', null).executeTakeFirst();
     if (!row) throw err(errorCode.INFERENCE_RUN_NOT_FOUND, 'inference run not found', 404);
     const datasets = await this.db.selectFrom('inference_run_datasets as d')
       .leftJoin('source_datasets as s', 's.id', 'd.source_dataset_id')
@@ -420,7 +513,7 @@ export class InferenceService {
   async list(params: { page: number; size: number; status?: string; datasetTypeId?: string }) {
     const size = Math.min(Math.max(params.size, 1), 200);
     const offset = (params.page - 1) * size;
-    let q = this.db.selectFrom('inference_runs as r');
+    let q = this.db.selectFrom('inference_runs as r').where('r.deleted_at', 'is', null);
     if (params.status) q = q.where('r.status', '=', params.status as never);
     if (params.datasetTypeId) q = q.where('r.dataset_type_id', '=', params.datasetTypeId);
     const [{ count }] = await q.select(sql<number>`count(*)`.as('count')).execute();

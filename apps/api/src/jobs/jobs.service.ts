@@ -114,7 +114,7 @@ FROM app.job_executions je
 JOIN app.inference_run_datasets ird ON je.job_id = ird.id
 JOIN app.inference_runs ir ON ird.inference_run_id = ir.id
 JOIN app.source_datasets sd ON ird.source_dataset_id = sd.id
-WHERE je.job_type = 'INFERENCE'`;
+WHERE je.job_type = 'INFERENCE' AND ir.deleted_at IS NULL`;
 
 const ALL_QUERIES: { type: string; sql: string }[] = [
   { type: 'TRAINING', sql: TRAINING_Q },

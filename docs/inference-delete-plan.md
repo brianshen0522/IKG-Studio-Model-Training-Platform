@@ -1,6 +1,6 @@
 # 推論 run 刪除：規劃
 
-> 狀態：規劃中（2026-10-14），待確認 §6 後開工
+> 狀態：已實作（2026-10-14），§6 已決定
 > 相關：`docs/inference-compare-plan.md`
 
 ## 1. 目標
@@ -36,7 +36,10 @@ flowchart LR
 
 ## 3. 規則
 
-- **只能刪已結束的 run**：`COMPLETED`、`PARTIALLY_FAILED`、`FAILED`、`CANCELLED`、`STOPPED`。進行中的要先按 Stop，等它停下來再刪；避免 worker 寫到一半資料被刪。
+- **可以刪除的狀態**：
+  - 已結束的 run：`COMPLETED`、`PARTIALLY_FAILED`、`FAILED`、`CANCELLED`、`STOPPED`。
+  - **還在排隊的 run（`QUEUED`）也可以直接刪**：刪除最常見的原因是剛送出就發現選項選錯，那時通常還在排隊。它的 dataset 會在同一個交易裡標成 CANCELLED，worker 之後領到 job 會看到已取消，直接放棄。
+  - 正在跑的 run（`RUNNING`、`STOPPING`）要先按 Stop，等它停下來再刪，避免 worker 寫到一半資料被刪。停止會在一個 chunk 內生效。
 - **刪掉後**：
   - 列表、詳情、比對頁、ZIP 下載都看不到；詳情回 404。
   - Retry、Stop 都會拒絕。
@@ -105,10 +108,6 @@ CREATE UNIQUE INDEX uq_inference_runs_dataset_type_name
 
 ## 6. 待確認
 
-- [ ] **同意把推論 ZIP 列為 AGENTS.md 鐵則 3 的局部例外**（與刪除模型時刪除轉換檔相同的作法）。不同意的話，只能做「隱藏」：資料和 ZIP 都留著，不會釋放空間。
-- [ ] **誰可以刪**：
-  - (a) 只有 ADMIN：和刪除模型、刪除訓練資料集一致。
-  - (b) ADMIN 和建立該 run 的人。
-
-  建議 (b)，推論 run 多半是使用者自己建來看結果的。
-- [ ] **要不要批次刪除**：在列表勾選多個一起刪。第一版建議先不做。
+- [x] **推論 ZIP 列為 AGENTS.md 鐵則 3 的局部例外**，與刪除模型時刪除轉換檔相同的作法。
+- [x] **誰可以刪**：ADMIN 和建立該 run 的人。API 強制檢查，按鈕也只對這兩種人顯示。
+- [x] **批次刪除**：第一版不做。

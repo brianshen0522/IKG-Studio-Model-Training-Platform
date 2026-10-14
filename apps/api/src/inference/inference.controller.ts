@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, Body, Query, Req, Res, HttpCode, HttpException } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Param, Body, Query, Req, Res, HttpCode, HttpException } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { errorCode } from '@model-trainer/shared-types';
@@ -70,6 +70,14 @@ export class InferenceController {
   retry(@Param('id') id: string, @Req() req: Request) {
     if (!UUID_RE.test(id)) throw notFound();
     return this.service.retry(id, actorOf(req));
+  }
+
+  /** Soft-deletes the run and removes its diffs and ZIPs; see InferenceService.deleteRun. */
+  @Delete(':id')
+  @HttpCode(200)
+  remove(@Param('id') id: string, @Req() req: Request) {
+    if (!UUID_RE.test(id)) throw notFound();
+    return this.service.deleteRun(id, actorOf(req));
   }
 
   @Get(':id')

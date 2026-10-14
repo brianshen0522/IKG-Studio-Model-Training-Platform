@@ -611,7 +611,8 @@ export interface BenchmarkEvaluationsTable {
 }
 
 export type InferenceRunStatus =
-  | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'PARTIALLY_FAILED' | 'FAILED' | 'CANCELLED' | 'STOPPING' | 'STOPPED';
+  | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'PARTIALLY_FAILED' | 'FAILED' | 'CANCELLED' | 'STOPPING' | 'STOPPED'
+  | 'DELETED';
 export type InferenceRunDatasetStatus =
   | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'STOPPING' | 'STOPPED';
 
@@ -638,6 +639,8 @@ export interface InferenceRunsTable {
   created_at: Generated<string>;
   created_by_user_id: string;
   updated_at: Generated<string>;
+  deleted_at: string | null;
+  deleted_by_user_id: string | null;
 }
 
 export interface InferenceRunDatasetsTable {

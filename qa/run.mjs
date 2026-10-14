@@ -258,6 +258,7 @@ const NEEDS = {
   // The trained model is the one inferred with; its classes are the build sources'.
   'inference': ['training'],
   'inference-detail': ['inference'],
+  'inference-delete': ['inference'],
   'user-actions': ['admin-user'],
   'datasettype-actions': ['admin-dataset-type'],
   'notifications': ['training'],
@@ -557,6 +558,15 @@ await run('inference-detail', async () => {
     skip('model agreed with every label; nothing to compare');
   } else bug('neither Compare nor "No differences" on a completed dataset');
   await page.getByText('← Back to Inference').click().catch(() => {}); await sleep(500);
+});
+
+await run('inference-delete', async () => {
+  await nav('Inference');
+  const card = page.locator('.job-card', { hasText: INFER_RUN }).first();
+  await card.getByRole('button', { name: 'Delete', exact: true }).click(); await sleep(400);
+  await modal().getByRole('button', { name: 'Delete run' }).click(); await sleep(1500);
+  if (await page.locator('.job-card', { hasText: INFER_RUN }).count()) bug('deleted inference run still listed');
+  else ok('inference run deleted');
 });
 
 await run('user-actions', async () => {
