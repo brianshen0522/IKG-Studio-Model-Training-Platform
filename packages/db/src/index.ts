@@ -227,7 +227,7 @@ export type SourceDatasetStatus = 'REGISTERED' | 'SCANNING' | 'READY' | 'INVALID
 export type DatasetScanStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 export type JobType =
   | 'TRAINING' | 'BENCHMARK_EVALUATION' | 'DATASET_BUILD' | 'DATASET_SCAN' | 'TRAINING_DATASET_SCAN'
-  | 'MODEL_INGEST' | 'MODEL_CONVERSION' | 'MODEL_DELETE' | 'CLEANUP' | 'MAINTENANCE';
+  | 'MODEL_INGEST' | 'MODEL_CONVERSION' | 'MODEL_DELETE' | 'CLEANUP' | 'MAINTENANCE' | 'INFERENCE';
 export type ModelConversionStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
 export type JobExecutionStatus =
   | 'ASSIGNED' | 'CLAIMED' | 'PREPARING' | 'RUNNING' | 'SUCCEEDED'
@@ -610,6 +610,72 @@ export interface BenchmarkEvaluationsTable {
   created_at: Generated<string>;
 }
 
+export type InferenceRunStatus =
+  | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'PARTIALLY_FAILED' | 'FAILED' | 'CANCELLED' | 'STOPPING' | 'STOPPED';
+export type InferenceRunDatasetStatus =
+  | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'STOPPING' | 'STOPPED';
+
+export interface InferenceRunsTable {
+  id: Generated<string>;
+  name: string;
+  description: string | null;
+  dataset_type_id: string;
+  model_id: string;
+  model_checksum_snapshot: string;
+  conf_threshold: number;
+  iou_threshold: number;
+  device: Generated<string>;
+  status: Generated<InferenceRunStatus>;
+  dataset_count: Generated<number>;
+  completed_count: Generated<number>;
+  failed_count: Generated<number>;
+  queued_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  stop_requested_at: string | null;
+  stop_requested_by_user_id: string | null;
+  stopped_at: string | null;
+  created_at: Generated<string>;
+  created_by_user_id: string;
+  updated_at: Generated<string>;
+}
+
+export interface InferenceRunDatasetsTable {
+  id: Generated<string>;
+  inference_run_id: string;
+  source_dataset_id: string;
+  sort_order: Generated<number>;
+  source_scan_id_snapshot: string | null;
+  status: Generated<InferenceRunDatasetStatus>;
+  image_count: Generated<number>;
+  processed_count: Generated<number>;
+  diff_image_count: Generated<number>;
+  missing_count: Generated<number>;
+  extra_count: Generated<number>;
+  class_mismatch_count: Generated<number>;
+  zip_artifact_id: string | null;
+  failure_code: string | null;
+  failure_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  stopped_at: string | null;
+  created_at: Generated<string>;
+}
+
+export interface InferenceDiffsTable {
+  id: Generated<string>;
+  inference_run_dataset_id: string;
+  image_relative_path: string;
+  original_boxes: Generated<unknown>;
+  predicted_boxes: Generated<unknown>;
+  matches: Generated<unknown>;
+  missing_count: Generated<number>;
+  extra_count: Generated<number>;
+  class_mismatch_count: Generated<number>;
+  label_invalid: Generated<boolean>;
+  created_at: Generated<string>;
+}
+
 export interface WebauthnCredentialsTable {
   id: Generated<string>;
   user_id: string;
@@ -665,6 +731,9 @@ export interface Database {
   benchmark_run_models: BenchmarkRunModelsTable;
   benchmark_run_datasets: BenchmarkRunDatasetsTable;
   benchmark_evaluations: BenchmarkEvaluationsTable;
+  inference_runs: InferenceRunsTable;
+  inference_run_datasets: InferenceRunDatasetsTable;
+  inference_diffs: InferenceDiffsTable;
   webauthn_credentials: WebauthnCredentialsTable;
   webauthn_challenges: WebauthnChallengesTable;
   workers: WorkersTable;

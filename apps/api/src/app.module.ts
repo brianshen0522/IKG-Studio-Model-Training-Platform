@@ -19,6 +19,7 @@ import { TrainingDatasetsModule } from './training-datasets/training-datasets.mo
 import { ModelsModule } from './models/models.module';
 import { TrainingModule } from './training/training.module';
 import { BenchmarksModule } from './benchmarks/benchmarks.module';
+import { InferenceModule } from './inference/inference.module';
 import { JobsModule } from './jobs/jobs.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { DashboardModule } from './dashboard/dashboard.module';
@@ -31,7 +32,7 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter'
 import { RequestContextMiddleware } from './common/middleware/request-context.middleware';
 
 @Module({
-  imports: [ConfigModule, DatabaseModule, RedisModule, AuditModule, OutboxModule, AuthModule, ObjectStoreModule, ArtifactsModule, AdminUsersModule, DatasetTypesModule, SystemSettingsModule, BackupModule, AdminWorkersModule, BrowseModule, SourceDatasetsModule, TrainingDatasetsModule, ModelsModule, TrainingModule, BenchmarksModule, JobsModule, NotificationsModule, DashboardModule, EventsModule],
+  imports: [ConfigModule, DatabaseModule, RedisModule, AuditModule, OutboxModule, AuthModule, ObjectStoreModule, ArtifactsModule, AdminUsersModule, DatasetTypesModule, SystemSettingsModule, BackupModule, AdminWorkersModule, BrowseModule, SourceDatasetsModule, TrainingDatasetsModule, ModelsModule, TrainingModule, BenchmarksModule, InferenceModule, JobsModule, NotificationsModule, DashboardModule, EventsModule],
   controllers: [HealthController, SystemController],
   providers: [
     // Idempotency first → outermost, so it captures/replays the final response envelope.
