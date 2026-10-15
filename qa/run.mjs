@@ -204,7 +204,7 @@ const nav = async (n) => {
 // whichever container holds the name — asking only for `tr` read a finished build as
 // having no status at all.
 async function rowBadge(text, expected = null) {
-  for (const sel of ['tr', '.folder-card', '.user-card', '.job-card', '.card']) {
+  for (const sel of ['tr', '.folder-card', '.user-card', '.job-card', '.inference-card', '.card']) {
     const badges = page.locator(sel, { hasText: text }).locator('.badge');
     const n = await badges.count();
     if (!n) continue;
@@ -514,24 +514,26 @@ await run('benchmark-detail', async () => {
 
 await run('inference', async () => {
   await nav('Inference'); await clickBtn('New Inference Run');
-  // Five-step wizard like the benchmark one: Dataset Type & Name, Select Model,
-  // Select Source Datasets, Device, Review.
-  await selectContaining(modal(), 'Dataset Type (Required)', DTYPE);
+  // One form, not a wizard: type, model, source datasets, then name and device.
+  // The type is preselected when only one has a usable model, so set it only if
+  // the select is still empty.
+  const typeSel = modal().locator('select[aria-label="Dataset type"]');
+  if (!(await typeSel.inputValue())) await typeSel.selectOption({ label: DTYPE });
   await sleep(800);
-  await setField(modal(), 'Run Name (Required)', INFER_RUN); await sleep(400);
-  const next = () => modal().getByRole('button', { name: 'Next', exact: true }).click();
-  await next(); await sleep(1200);                       // -> Select Model
   const m = modal().locator('.check-row', { hasText: TRAIN_JOB }).first();
   if (await m.count()) await m.locator('input').check(); else bug('trained model not offered for inference');
-  await next(); await sleep(1200);                       // -> Select Source Datasets
+  await sleep(1200);
   // Exact name: QA has both "vehicles" and "vehicles-b", and a contains match took
   // whichever came first.
   const src = modal().locator('.check-row').filter({ has: page.getByText(BUILD_SOURCES[0], { exact: true }) }).first();
   if (await src.count()) await src.locator('input').check(); else bug(`source "${BUILD_SOURCES[0]}" not offered for inference`);
-  await next(); await sleep(800);                        // -> Device
-  await modal().locator('.device-trigger').first().click(); await sleep(400);
-  await page.locator('.device-row', { hasText: 'Auto-detect' }).first().click(); await sleep(400);
-  await next(); await sleep(800);                        // -> Review
+  // The name fills itself in from the model and dataset; the run needs its own.
+  const nameInput = modal().locator('.field', { hasText: 'Name' }).first().locator('input');
+  // Filled in by an effect after the dataset tick re-renders, so give it a moment.
+  let filled = '';
+  for (let i = 0; i < 10 && !filled.includes(TRAIN_JOB); i++) { filled = await nameInput.inputValue(); if (!filled.includes(TRAIN_JOB)) await sleep(200); }
+  if (filled.includes(TRAIN_JOB)) ok('run name filled in from the model'); else bug(`run name was not filled in from the model (got "${filled}")`);
+  await nameInput.fill(INFER_RUN);
   await modal().getByRole('button', { name: 'Start Inference' }).click(); await sleep(2000);
   const s = await pollRow('Inference', INFER_RUN, ['COMPLETED', 'PARTIALLY_FAILED', 'FAILED'], 40, 3000);
   if (s === 'COMPLETED') ok('inference COMPLETED'); else bug('inference not COMPLETED (last=' + s + ')');
@@ -539,7 +541,7 @@ await run('inference', async () => {
 
 await run('inference-detail', async () => {
   await nav('Inference');
-  await page.locator('.job-card', { hasText: INFER_RUN }).first().click(); await sleep(1000);
+  await page.locator('.inference-card', { hasText: INFER_RUN }).first().click(); await sleep(1000);
   if (await page.getByRole('heading', { name: INFER_RUN }).count()) ok('inference detail opens'); else bug('inference detail did not open');
   const row = page.locator('tr', { hasText: BUILD_SOURCES[0] }).first();
   if (await row.count()) ok('dataset row listed'); else bug('dataset row missing on inference detail');
@@ -562,10 +564,10 @@ await run('inference-detail', async () => {
 
 await run('inference-delete', async () => {
   await nav('Inference');
-  const card = page.locator('.job-card', { hasText: INFER_RUN }).first();
+  const card = page.locator('.inference-card', { hasText: INFER_RUN }).first();
   await card.getByRole('button', { name: 'Delete', exact: true }).click(); await sleep(400);
   await modal().getByRole('button', { name: 'Delete run' }).click(); await sleep(1500);
-  if (await page.locator('.job-card', { hasText: INFER_RUN }).count()) bug('deleted inference run still listed');
+  if (await page.locator('.inference-card', { hasText: INFER_RUN }).count()) bug('deleted inference run still listed');
   else ok('inference run deleted');
 });
 

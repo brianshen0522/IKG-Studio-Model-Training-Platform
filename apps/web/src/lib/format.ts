@@ -37,3 +37,25 @@ export function formatDate(iso: string | null | undefined): string {
     minute: '2-digit',
   });
 }
+
+/** Time between two Postgres timestamps, as "45s", "3m 12s" or "2h 05m". Open-ended
+ * (no end) measures to now, for something still running. */
+export function formatElapsed(start: string | null | undefined, end?: string | null): string {
+  if (!start) return '—';
+  const from = new Date(toParsableIso(start)).getTime();
+  const to = end ? new Date(toParsableIso(end)).getTime() : Date.now();
+  if (Number.isNaN(from) || Number.isNaN(to)) return '—';
+  const s = Math.max(0, Math.round((to - from) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`;
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+}
+
+/** Share of a whole as "37%", or "<1%" for a non-zero share that rounds to 0. */
+export function formatShare(part: number, whole: number): string {
+  if (!whole) return '—';
+  const p = (part / whole) * 100;
+  if (part > 0 && p < 1) return '<1%';
+  return `${Math.round(p)}%`;
+}

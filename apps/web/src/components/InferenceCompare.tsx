@@ -123,13 +123,14 @@ function placement(img: HTMLImageElement, cw: number, ch: number, view: View) {
 
 /** One side. The view is the parent's, so both sides move together. */
 function DiffCanvas({
-  img, imgError, boxes, view, setView, selected, onPick, showBoxes, showMatched, title, badges,
+  img, imgError, boxes, view, setView, onReset, selected, onPick, showBoxes, showMatched, title, badges,
 }: {
   img: HTMLImageElement | null;
   imgError: string | null;
   boxes: DrawBox[];
   view: View;
   setView: (v: View) => void;
+  onReset: () => void;
   selected: number | null;
   onPick: (entry: number | null) => void;
   showBoxes: boolean;
@@ -311,7 +312,7 @@ function DiffCanvas({
           }
         }}
         onMouseLeave={() => { drag.current = null; setDragging(false); }}
-        onDoubleClick={() => setView(RESET)}
+        onDoubleClick={onReset}
       />
       <div
         style={{
@@ -394,7 +395,46 @@ export function InferenceCompare({ runId, rdId, onBack }: { runId: string; rdId:
   const [selected, setSelected] = useState<number | null>(null);
   const [showBoxes, setShowBoxes] = useState(true);
   const [showMatched, setShowMatched] = useState(true);
-  const [view, setView] = useState<View>(RESET);
+  const [view, setViewState] = useState<View>(RESET);
+  const viewRef = useRef<View>(RESET);
+  viewRef.current = view;
+  const animRef = useRef<number | null>(null);
+
+  const stopAnimation = () => {
+    if (animRef.current !== null) cancelAnimationFrame(animRef.current);
+    animRef.current = null;
+  };
+  // Every view change the user makes (wheel, drag) goes through here, so one
+  // made during the reset animation takes over from it instead of fighting it.
+  const setView = useCallback((v: View) => { stopAnimation(); setViewState(v); }, []);
+
+  /**
+   * Ease back to the fitted view instead of jumping there, which lost track of
+   * where the zoomed-in spot had been. Scale is interpolated on a log scale so
+   * a 20x zoom shrinks as evenly as a 2x one; pan is linear. Skipped for
+   * people who asked their system for reduced motion.
+   */
+  const resetView = useCallback(() => {
+    stopAnimation();
+    const from = viewRef.current;
+    if (from.scale === RESET.scale && from.x === RESET.x && from.y === RESET.y) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { setViewState(RESET); return; }
+    const duration = 320;
+    const start = performance.now();
+    const logFrom = Math.log(from.scale);
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      const e = 1 - (1 - t) ** 3; // ease-out cubic
+      setViewState(t >= 1 ? RESET : {
+        scale: Math.exp(logFrom * (1 - e)),
+        x: from.x * (1 - e),
+        y: from.y * (1 - e),
+      });
+      animRef.current = t < 1 ? requestAnimationFrame(step) : null;
+    };
+    animRef.current = requestAnimationFrame(step);
+  }, []);
+  useEffect(() => stopAnimation, []);
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [imgError, setImgError] = useState<string | null>(null);
   const [top, setTop] = useState(60);
@@ -494,12 +534,12 @@ export function InferenceCompare({ runId, rdId, onBack }: { runId: string; rdId:
       else if (k === 'arrowleft' || k === 'a') { e.preventDefault(); go(-1); }
       else if (k === 'l') setShowBoxes((v) => !v);
       else if (k === 'm') setShowMatched((v) => !v);
-      else if (k === '0') setView(RESET);
+      else if (k === '0') resetView();
       else if (k === 'escape') setSelected(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [go]);
+  }, [go, resetView]);
 
   const className = useCallback((i: number) => info?.class_names[i] ?? `#${i}`, [info]);
 
@@ -591,7 +631,7 @@ export function InferenceCompare({ runId, rdId, onBack }: { runId: string; rdId:
           <button style={toolBtn(!showMatched)} onClick={() => setShowMatched((v) => !v)} title="Show or hide boxes that agree on both sides (M)">
             {showMatched ? 'Hide same (M)' : 'Show same (M)'}
           </button>
-          <button style={toolBtn()} onClick={() => setView(RESET)} title="Fit the image (0, or double-click)">Reset view</button>
+          <button style={toolBtn()} onClick={resetView} title="Fit the image (0, or double-click)">Reset view</button>
         </div>
       </div>
 
@@ -605,12 +645,12 @@ export function InferenceCompare({ runId, rdId, onBack }: { runId: string; rdId:
       {current ? (
         <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: 2, background: '#000' }}>
           <DiffCanvas
-            img={img} imgError={imgError} boxes={originalBoxes} view={view} setView={setView}
+            img={img} imgError={imgError} boxes={originalBoxes} view={view} setView={setView} onReset={resetView}
             selected={selected} onPick={setSelected} showBoxes={showBoxes} showMatched={showMatched}
             title={`Original labels · ${detail?.original_boxes.length ?? 0}`} badges={originalBadges}
           />
           <DiffCanvas
-            img={img} imgError={imgError} boxes={predictedBoxes} view={view} setView={setView}
+            img={img} imgError={imgError} boxes={predictedBoxes} view={view} setView={setView} onReset={resetView}
             selected={selected} onPick={setSelected} showBoxes={showBoxes} showMatched={showMatched}
             title={`Model prediction · ${detail?.predicted_boxes.length ?? 0}`} badges={predictedBadges}
           />

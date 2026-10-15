@@ -533,7 +533,10 @@ export class InferenceService {
 
     const datasetRows = await this.db.selectFrom('inference_run_datasets as d')
       .innerJoin('source_datasets as s', 's.id', 'd.source_dataset_id')
-      .select(['d.inference_run_id', 's.id as source_dataset_id', 's.name as source_dataset_name', 'd.diff_image_count'])
+      .select([
+        'd.inference_run_id', 's.id as source_dataset_id', 's.name as source_dataset_name',
+        'd.id as run_dataset_id', 'd.diff_image_count', 'd.image_count', 'd.processed_count',
+      ])
       .where('d.inference_run_id', 'in', runIds)
       .orderBy('d.sort_order').execute();
 
@@ -544,6 +547,11 @@ export class InferenceService {
         source_dataset_ids: datasets.map((d) => d.source_dataset_id),
         source_dataset_names: datasets.map((d) => d.source_dataset_name),
         diff_image_count: datasets.reduce((n, d) => n + d.diff_image_count, 0),
+        // The list shows how much of what was inferred differs, which needs the
+        // denominator too; and with one dataset it can link straight to compare.
+        image_count: datasets.reduce((n, d) => n + d.image_count, 0),
+        processed_count: datasets.reduce((n, d) => n + d.processed_count, 0),
+        run_dataset_ids: datasets.map((d) => d.run_dataset_id),
       };
     });
     return { items, total: Number(count), page: params.page, size };

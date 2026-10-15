@@ -3,7 +3,7 @@ import { apiGet, ApiError } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { SkeletonLoader } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
-import { formatDate } from '../lib/format';
+import { formatDate, formatElapsed, formatShare } from '../lib/format';
 import { useUrlParam } from '../lib/urlState';
 import { InferenceCompare } from '../components/InferenceCompare';
 import { InferenceRunActions } from '../components/InferenceRunActions';
@@ -49,6 +49,9 @@ interface InferenceRun {
 }
 
 const ACTIVE = new Set(['QUEUED', 'RUNNING', 'STOPPING']);
+
+/** Above this share of differing images the model probably does not fit the data. */
+const HIGH_DIFF = 0.5;
 
 const card: React.CSSProperties = {
   background: 'var(--surface)', padding: '12px 16px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)',
@@ -106,8 +109,17 @@ export function InferenceRunDetail({ id, onBack }: { id: string; onBack: () => v
                 <p style={{ margin: '4px 0 0 0', color: 'var(--text-sub)', fontSize: '13px' }}>{data.description}</p>
               )}
             </div>
+            <div className="spacer" />
             <InferenceRunActions run={{ ...data, diff_image_count: totals.diff }} onDeleted={onBack} />
           </header>
+
+          {!ACTIVE.has(data.status) && totals.processed > 0 && totals.diff / totals.processed >= HIGH_DIFF && (
+            <div className="warn-banner" style={{ marginBottom: '16px' }}>
+              <strong>The model disagrees with {formatShare(totals.diff, totals.processed)} of the labels.</strong>{' '}
+              That is usually the model not fitting this data (trained on other footage, cameras or classes) rather
+              than that many labelling mistakes. Check a few images in Compare before sending the ZIP for re-labelling.
+            </div>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '20px' }}>
             <div style={card}>
@@ -120,7 +132,7 @@ export function InferenceRunDetail({ id, onBack }: { id: string; onBack: () => v
             <div style={card}>
               <div style={cardLabel}>Images processed</div>
               <div style={cardValue}>
-                {totals.processed.toLocaleString()} / {totals.images.toLocaleString()}
+                {totals.processed.toLocaleString()} <span style={{ fontSize: 13, color: 'var(--text-sub)', fontWeight: 500 }}>/ {totals.images.toLocaleString()}</span>
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-sub)', marginTop: '2px' }}>
                 {data.completed_count} / {data.dataset_count} datasets done
@@ -129,18 +141,24 @@ export function InferenceRunDetail({ id, onBack }: { id: string; onBack: () => v
             </div>
             <div style={card}>
               <div style={cardLabel}>Images that differ</div>
-              <div style={{ ...cardValue, color: 'var(--primary)' }}>{totals.diff.toLocaleString()}</div>
-              <div style={{ fontSize: '11px', color: 'var(--text-sub)', marginTop: '2px' }}>
-                {totals.missing} missing · {totals.extra} extra · {totals.mismatch} class
+              <div style={{ ...cardValue, color: 'var(--primary)' }}>
+                {totals.diff.toLocaleString()}{' '}
+                <span style={{ fontSize: 13, color: 'var(--text-sub)', fontWeight: 500 }}>
+                  ({formatShare(totals.diff, totals.processed)})
+                </span>
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-sub)', marginTop: '2px' }}
+                title="Counted in boxes, not images: one image can miss several boxes">
+                Boxes: {totals.missing.toLocaleString()} missing · {totals.extra.toLocaleString()} extra · {totals.mismatch.toLocaleString()} class
               </div>
             </div>
             <div style={card}>
-              <div style={cardLabel}>Timing</div>
-              <div style={{ fontSize: '13px', fontWeight: 500, marginTop: '4px', color: 'var(--text)' }}>
-                Started: {formatDate(data.started_at)}
+              <div style={cardLabel}>{ACTIVE.has(data.status) ? 'Running for' : 'Took'}</div>
+              <div style={cardValue}>
+                {data.started_at ? formatElapsed(data.started_at, ACTIVE.has(data.status) ? null : data.finished_at) : '—'}
               </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-sub)', marginTop: '2px' }}>
-                Finished: {formatDate(data.finished_at)}
+              <div style={{ fontSize: '11px', color: 'var(--text-sub)', marginTop: '2px' }}>
+                Started {formatDate(data.started_at)}
               </div>
             </div>
           </div>
@@ -148,15 +166,21 @@ export function InferenceRunDetail({ id, onBack }: { id: string; onBack: () => v
           <div className="table-wrap">
             <table>
               <thead>
+                {/* Two units in one table: images, then boxes. Without the group headers
+                    372 "missing" beside 120 differing images read as a contradiction. */}
                 <tr>
-                  <th>Source dataset</th>
-                  <th>Status</th>
-                  <th style={{ minWidth: 160 }}>Progress</th>
+                  <th rowSpan={2}>Source dataset</th>
+                  <th rowSpan={2}>Status</th>
+                  <th colSpan={2} style={{ textAlign: 'center', borderBottom: '1px solid var(--border)' }}>Images</th>
+                  <th colSpan={3} style={{ textAlign: 'center', borderBottom: '1px solid var(--border)' }}>Boxes</th>
+                  <th rowSpan={2} />
+                </tr>
+                <tr>
+                  <th style={{ minWidth: 150 }}>Processed</th>
                   <th style={{ textAlign: 'right' }}>Differ</th>
                   <th style={{ textAlign: 'right' }} title="Boxes in the original labels with no prediction over them">Missing</th>
                   <th style={{ textAlign: 'right' }} title="Predicted boxes with nothing in the original labels under them">Extra</th>
                   <th style={{ textAlign: 'right' }} title="Boxes in the same place with a different class">Class</th>
-                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -194,7 +218,14 @@ export function InferenceRunDetail({ id, onBack }: { id: string; onBack: () => v
                           <div style={{ height: '100%', width: `${pct}%`, backgroundColor: 'var(--primary)', transition: 'width 0.3s ease' }} />
                         </div>
                       </td>
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{d.diff_image_count.toLocaleString()}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <span style={{ fontWeight: 600 }}>{d.diff_image_count.toLocaleString()}</span>
+                        {d.processed_count > 0 && (
+                          <span style={{ color: 'var(--text-sub)', fontSize: 11, marginLeft: 4 }}>
+                            {formatShare(d.diff_image_count, d.processed_count)}
+                          </span>
+                        )}
+                      </td>
                       <td style={{ textAlign: 'right' }}>{d.missing_count.toLocaleString()}</td>
                       <td style={{ textAlign: 'right' }}>{d.extra_count.toLocaleString()}</td>
                       <td style={{ textAlign: 'right' }}>{d.class_mismatch_count.toLocaleString()}</td>

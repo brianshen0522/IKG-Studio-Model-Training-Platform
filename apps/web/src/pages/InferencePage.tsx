@@ -6,7 +6,7 @@ import { SkeletonLoader } from '../components/SkeletonLoader';
 import { EmptyState } from '../components/EmptyState';
 import { NewInferenceRunDialog } from '../components/NewInferenceRunDialog';
 import { SearchableSelect, type SelectOption } from '../components/SearchableSelect';
-import { formatDate } from '../lib/format';
+import { formatDate, formatElapsed, formatShare } from '../lib/format';
 import { useUrlParam } from '../lib/urlState';
 import { InferenceRunDetail } from './InferenceRunDetail';
 import { InferenceRunActions } from '../components/InferenceRunActions';
@@ -21,10 +21,13 @@ interface InferenceRun {
   dataset_type_id: string;
   dataset_type_name: string | null;
   source_dataset_names: string[];
+  run_dataset_ids: string[];
   dataset_count: number;
   completed_count: number;
   failed_count: number;
   diff_image_count: number;
+  image_count: number;
+  processed_count: number;
   created_at: string;
   finished_at: string | null;
 }
@@ -39,9 +42,15 @@ const STATUS_OPTIONS: SelectOption[] = [
   { value: 'CANCELLED', label: 'Cancelled' },
 ];
 
+const ACTIVE = new Set(['QUEUED', 'RUNNING', 'STOPPING']);
+
+/** Above this share of differing images the model probably does not fit the data. */
+const HIGH_DIFF = 0.5;
+
 export function InferencePage() {
   const [showNew, setShowNew] = useState(false);
   const [selectedId, setSelectedId] = useUrlParam('inferenceRunId');
+  const [, setCompareId] = useUrlParam('compareDatasetId');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
@@ -64,6 +73,13 @@ export function InferencePage() {
 
   if (selectedId) return <InferenceRunDetail id={selectedId} onBack={() => setSelectedId(null)} />;
 
+  // Straight to the compare page of a one-dataset run: the run page would
+  // only be a click on the way there.
+  const openCompare = (runId: string, rdId: string) => {
+    setCompareId(rdId);
+    setSelectedId(runId);
+  };
+
   return (
     <section className="page">
       <header className="page-head">
@@ -80,29 +96,21 @@ export function InferencePage() {
         <button className="btn btn-primary" onClick={() => setShowNew(true)}>+ New Inference Run</button>
       </header>
 
-      <div
-        style={{
-          background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
-          padding: '12px 16px', marginBottom: '20px', display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap',
-        }}
-      >
+      <div className="inference-filters">
         <input
           type="text"
+          className="inference-search"
           placeholder="🔍 Search by name, model or dataset..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          style={{
-            flex: 2, minWidth: '200px', padding: '7px 12px', fontSize: '13px', background: 'var(--bg)',
-            color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-          }}
         />
         <SearchableSelect
-          label="Status"
+          label=""
           options={STATUS_OPTIONS}
           value={statusFilter}
           onChange={setStatusFilter}
-          placeholder="All Statuses"
-          style={{ flex: 1, minWidth: '140px' }}
+          placeholder="All statuses"
+          style={{ minWidth: '170px' }}
         />
       </div>
 
@@ -113,71 +121,82 @@ export function InferencePage() {
       )}
 
       {data && filtered.length > 0 && (
-        <div className="job-list">
+        <div className="inference-list">
           {filtered.map((r) => {
-            const done = r.completed_count + r.failed_count;
-            const pct = r.dataset_count > 0 ? Math.round((done / r.dataset_count) * 100) : 0;
+            const active = ACTIVE.has(r.status);
+            const share = r.processed_count ? r.diff_image_count / r.processed_count : 0;
+            const high = !active && r.processed_count > 0 && share >= HIGH_DIFF;
+            const progress = r.image_count ? r.processed_count / r.image_count : 0;
+            const single = r.run_dataset_ids.length === 1 && r.diff_image_count > 0;
             return (
-              <div key={r.id} className="job-card" onClick={() => setSelectedId(r.id)} style={{ cursor: 'pointer' }}>
-                <div className="job-card-body">
-                  <div className="job-card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        <span className="job-card-name" style={{ fontWeight: 600, fontSize: '15px', color: 'var(--text)' }}>{r.name}</span>
-                        {r.dataset_type_name && (
-                          <span style={{ fontSize: '11px', background: 'var(--surface-muted)', color: 'var(--text-sub)', padding: '2px 8px', borderRadius: '10px', border: '1px solid var(--border)' }}>
-                            {r.dataset_type_name}
-                          </span>
-                        )}
-                      </div>
-                      {r.description && (
-                        <div style={{ fontSize: '12px', color: 'var(--text-sub)', marginTop: '4px' }}>{r.description}</div>
-                      )}
-                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
-                        {r.model_name && (
-                          <span style={{ fontSize: '10px', color: 'var(--blue)', background: 'var(--blue-glow)', padding: '1px 6px', borderRadius: '4px' }}>
-                            {r.model_name}
-                          </span>
-                        )}
-                        {r.source_dataset_names.slice(0, 3).map((n, i) => (
-                          <span key={i} style={{ fontSize: '10px', color: 'var(--green)', background: 'rgba(32,194,90,0.12)', padding: '1px 6px', borderRadius: '4px' }}>
-                            {n}
-                          </span>
-                        ))}
-                        {r.source_dataset_names.length > 3 && (
-                          <span style={{ fontSize: '10px', color: 'var(--text-sub)' }}>+{r.source_dataset_names.length - 3} more</span>
-                        )}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <StatusBadge status={r.status} />
-                      <InferenceRunActions run={r} />
-                    </div>
+              <div key={r.id} className="inference-card" onClick={() => setSelectedId(r.id)}>
+                <div className="inference-card-main">
+                  <div className="inference-card-title">
+                    <span className="inference-card-name">{r.name}</span>
+                    {r.dataset_type_name && <span className="inference-chip">{r.dataset_type_name}</span>}
                   </div>
-
-                  <div style={{ marginTop: '12px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-sub)', marginBottom: '4px' }}>
-                      <span>
-                        {r.completed_count} / {r.dataset_count} datasets done
-                        {r.failed_count > 0 ? ` (${r.failed_count} failed)` : ''}
-                        {' · '}
-                        <strong style={{ color: 'var(--text)' }}>{r.diff_image_count.toLocaleString()}</strong> images differ
-                      </span>
-                      <span style={{ fontWeight: 600, color: 'var(--text)' }}>{pct}%</span>
-                    </div>
-                    <div style={{ height: '7px', width: '100%', backgroundColor: 'var(--surface-muted)', borderRadius: '4px', overflow: 'hidden' }}>
-                      <div
-                        style={{
-                          height: '100%', width: `${pct}%`, transition: 'width 0.3s ease',
-                          backgroundColor: r.failed_count > 0 ? 'var(--yellow)' : 'var(--primary)',
-                        }}
-                      />
-                    </div>
+                  {r.description && <div className="inference-card-desc">{r.description}</div>}
+                  <div className="inference-card-route">
+                    <span className="inference-model" title="Model">{r.model_name ?? '—'}</span>
+                    <span className="inference-arrow">→</span>
+                    {r.source_dataset_names.slice(0, 3).map((n) => (
+                      <span key={n} className="inference-dataset" title="Source dataset">{n}</span>
+                    ))}
+                    {r.source_dataset_names.length > 3 && (
+                      <span className="inference-more">+{r.source_dataset_names.length - 3} more</span>
+                    )}
                   </div>
                 </div>
-                <div className="job-card-meta" style={{ display: 'flex', gap: '16px', fontSize: '12px', color: 'var(--text-sub)', borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '12px' }}>
-                  <span>Created: {formatDate(r.created_at)}</span>
-                  {r.finished_at && <span>Finished: {formatDate(r.finished_at)}</span>}
+
+                <div className="inference-card-metric">
+                  {active ? (
+                    <>
+                      <div className="inference-metric-line">
+                        <span>
+                          {r.status === 'QUEUED' ? 'Waiting for a worker' : `${r.processed_count.toLocaleString()} / ${r.image_count.toLocaleString()} images`}
+                        </span>
+                        <strong>{formatShare(r.processed_count, r.image_count)}</strong>
+                      </div>
+                      <div className="inference-bar"><div style={{ width: `${progress * 100}%`, background: 'var(--primary)' }} /></div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="inference-metric-line">
+                        <span>
+                          <strong style={{ color: 'var(--text)' }}>{r.diff_image_count.toLocaleString()}</strong>
+                          {' '}of {r.processed_count.toLocaleString()} images differ
+                        </span>
+                        <strong style={{ color: high ? 'var(--yellow)' : 'var(--text)' }}>
+                          {formatShare(r.diff_image_count, r.processed_count)}
+                        </strong>
+                      </div>
+                      <div className="inference-bar">
+                        <div style={{ width: `${share * 100}%`, background: high ? 'var(--yellow)' : 'var(--primary)' }} />
+                      </div>
+                      {high && <div className="inference-metric-hint">Model disagrees with most labels</div>}
+                      {r.failed_count > 0 && (
+                        <div className="inference-metric-hint" style={{ color: 'var(--red)' }}>
+                          {r.failed_count} of {r.dataset_count} datasets failed
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <div className="inference-card-side">
+                  <StatusBadge status={r.status} />
+                  <div className="inference-card-time" title={`Created ${formatDate(r.created_at)}`}>
+                    {formatDate(r.created_at)}
+                    {r.finished_at && ` · ${formatElapsed(r.created_at, r.finished_at)}`}
+                  </div>
+                  <div className="inference-card-actions" onClick={(e) => e.stopPropagation()}>
+                    {single && (
+                      <button className="btn btn-sm btn-primary" onClick={() => openCompare(r.id, r.run_dataset_ids[0])}>
+                        Compare
+                      </button>
+                    )}
+                    <InferenceRunActions run={r} />
+                  </div>
                 </div>
               </div>
             );
