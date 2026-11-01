@@ -5,6 +5,7 @@ light Level-2 archive inspection (no torch in this worker), then copies the file
 the Model Root via staging + atomic rename and registers an AVAILABLE model.
 """
 import hashlib
+import http.client
 import ipaddress
 import os
 import pickletools
@@ -44,8 +45,8 @@ def _task_from_pickle(raw: bytes) -> str | None:
     loaded — but the task is a plain string in the pickle stream, and `pickletools`
     walks that stream as *data*: it disassembles opcodes and never constructs an
     object or calls into a module, so an untrusted upload cannot execute anything
-    here. That is a stronger guarantee than the `torch.load(weights_only=False)` the
-    scanner uses, not a weaker one.
+    here. That is a stronger guarantee than even the restricted load the scanner uses,
+    not a weaker one.
 
     Returns None on anything ambiguous — a file that names two different tasks, or
     one this cannot parse. The caller must treat None as "no opinion" and let the
@@ -102,21 +103,73 @@ def _sanitize(name: str) -> str:
     return slug or "model"
 
 
+def _assert_public_ip(address: str, allow_private: bool) -> None:
+    ip = ipaddress.ip_address(address)
+    ip = getattr(ip, "ipv4_mapped", None) or ip
+    # The metadata service is always blocked, even when private networks are permitted.
+    if str(ip) in _METADATA_IPS:
+        raise IngestError("MODEL_URL_SCHEME_NOT_ALLOWED", f"blocked metadata address: {ip}")
+    if allow_private:
+        return
+    if (not ip.is_global or ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast
+            or ip.is_reserved or ip.is_unspecified):
+        raise IngestError("MODEL_URL_SCHEME_NOT_ALLOWED", f"blocked non-public address: {ip}")
+
+
 def _assert_public_host(host: str, allow_private: bool) -> None:
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror as e:
         raise IngestError("MODEL_DOWNLOAD_FAILED", f"DNS resolution failed: {e}")
     for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        # The metadata service is always blocked, even when private networks are permitted.
-        if str(ip) in _METADATA_IPS:
-            raise IngestError("MODEL_URL_SCHEME_NOT_ALLOWED", f"blocked metadata address: {ip}")
-        if allow_private:
-            continue
-        if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast
-                or ip.is_reserved or ip.is_unspecified):
-            raise IngestError("MODEL_URL_SCHEME_NOT_ALLOWED", f"blocked non-public address: {ip}")
+        _assert_public_ip(info[4][0], allow_private)
+
+
+def _peer_checked(connection_class, allow_private: bool):
+    """A connection factory that re-checks the address actually connected to.
+
+    The hostname is resolved again when the connection opens, so the answer checked by
+    `_assert_public_host` is not necessarily the one used.
+    """
+    def create_connection(*args, **kwargs):
+        sock = socket.create_connection(*args, **kwargs)
+        try:
+            _assert_public_ip(sock.getpeername()[0], allow_private)
+        except IngestError:
+            sock.close()
+            raise
+        return sock
+
+    def factory(*args, **kwargs):
+        conn = connection_class(*args, **kwargs)
+        conn._create_connection = create_connection
+        return conn
+    return factory
+
+
+class _PeerCheckedHTTPHandler(urllib.request.HTTPHandler):
+    allow_private = False
+
+    def http_open(self, req):
+        return self.do_open(_peer_checked(http.client.HTTPConnection, self.allow_private), req)
+
+
+class _PeerCheckedHTTPSHandler(urllib.request.HTTPSHandler):
+    allow_private = False
+
+    def https_open(self, req):
+        return self.do_open(_peer_checked(http.client.HTTPSConnection, self.allow_private), req,
+                            context=self._context)
+
+
+def _build_opener(allow_private: bool):
+    handlers = [_NoRedirect()]
+    # Behind a configured proxy the peer is the proxy, which is expected to be private.
+    if not urllib.request.getproxies():
+        http_handler, https_handler = _PeerCheckedHTTPHandler(), _PeerCheckedHTTPSHandler()
+        http_handler.allow_private = https_handler.allow_private = allow_private
+        handlers += [http_handler, https_handler]
+    return urllib.request.build_opener(*handlers)
 
 
 def _open_url(url: str, allow_http: bool, allow_private: bool):
@@ -132,7 +185,7 @@ def _open_url(url: str, allow_http: bool, allow_private: bool):
             raise IngestError("MODEL_INVALID_URL", "missing host")
         _assert_public_host(parsed.hostname, allow_private)
         req = urllib.request.Request(current, headers={"User-Agent": "model-trainer-model-ingest"})
-        opener = urllib.request.build_opener(_NoRedirect())
+        opener = _build_opener(allow_private)
         resp = opener.open(req, timeout=DOWNLOAD_TIMEOUT_S)
         if resp.status in (301, 302, 303, 307, 308):
             loc = resp.headers.get("Location")

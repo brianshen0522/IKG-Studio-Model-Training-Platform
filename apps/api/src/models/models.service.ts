@@ -154,7 +154,8 @@ export class ModelsService {
 
     const correlationId = randomUUID();
     const taskId = randomUUID();
-    const objectKey = `temporary/model-ingest/${taskId}/${input.original_filename}`;
+    // Fixed leaf: the client's filename is display metadata and must not shape the key.
+    const objectKey = `temporary/model-ingest/${taskId}/upload.pt`;
     await this.store.putBuffer(this.uploadBucket, objectKey, file, 'application/octet-stream');
 
     try {
