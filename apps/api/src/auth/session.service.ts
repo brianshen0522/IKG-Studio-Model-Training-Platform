@@ -76,7 +76,7 @@ export class SessionService {
       redisKey,
       absoluteHours * 3600,
       JSON.stringify({
-        sessionId,
+        sessionId: tokenHash,
         userId,
         role,
         status,
@@ -117,7 +117,7 @@ export class SessionService {
       if (!user) return null;
 
       data = {
-        sessionId: token,
+        sessionId: tokenHash,
         userId: user.id,
         role: user.role,
         status: user.status,

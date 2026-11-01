@@ -4,12 +4,20 @@ import { randomBytes } from 'crypto';
 
 @Injectable()
 export class PasswordService {
+  private dummyHash?: Promise<string>;
+
   async hash(password: string): Promise<string> {
     return argon2.hash(password, { type: argon2.argon2id });
   }
 
   async verify(hash: string, password: string): Promise<boolean> {
     return argon2.verify(hash, password);
+  }
+
+  /** Spends the same time as verify(), so a login for an unusable account looks like a wrong password. */
+  async verifyDummy(password: string): Promise<void> {
+    this.dummyHash ??= this.hash(randomBytes(16).toString('hex'));
+    await argon2.verify(await this.dummyHash, password);
   }
 
   async needsRehash(hash: string): Promise<boolean> {

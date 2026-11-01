@@ -55,9 +55,9 @@ export class WebAuthnService {
   }
 
   private async takeChallenge(id: string, flow: 'REGISTER' | 'AUTHENTICATE') {
-    const row = await this.db.selectFrom('webauthn_challenges').selectAll()
-      .where('id', '=', id).where('flow_type', '=', flow).executeTakeFirst();
-    if (row) await this.db.deleteFrom('webauthn_challenges').where('id', '=', id).execute();
+    // One statement, so two concurrent verifications cannot both consume it.
+    const row = await this.db.deleteFrom('webauthn_challenges')
+      .where('id', '=', id).where('flow_type', '=', flow).returningAll().executeTakeFirst();
     if (!row || new Date(row.expires_at).getTime() < Date.now()) {
       throw err(errorCode.PASSKEY_CHALLENGE_EXPIRED, 'passkey challenge expired or not found', 400);
     }

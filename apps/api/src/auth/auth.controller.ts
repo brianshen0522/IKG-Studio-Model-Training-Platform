@@ -65,6 +65,7 @@ export class AuthController {
       .executeTakeFirst();
 
     if (!user) {
+      await this.passwordService.verifyDummy(password);
       await this.auditService.append({
         actorType: 'SYSTEM',
         actorRef: 'login',
@@ -121,6 +122,7 @@ export class AuthController {
     }
 
     if (freshUser.status !== 'ACTIVE') {
+      await this.passwordService.verifyDummy(password);
       await this.incrementFailedLogin(freshUser.id, ip, ua);
       await this.auditService.append({
         actorType: 'SYSTEM',
@@ -259,11 +261,10 @@ export class AuthController {
   @Post('logout-all')
   @HttpCode(200)
   async logoutAll(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const token = this.sessionService.extractToken(req);
     const user = (req as unknown as Record<string, unknown>).user as { id: string } | undefined;
 
     if (user?.id) {
-      await this.sessionService.revokeAllForUser(user.id, token ?? undefined);
+      await this.sessionService.revokeAllForUser(user.id);
       await this.auditService.append({
         actorType: 'USER',
         actorUserId: user.id,

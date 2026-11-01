@@ -11,7 +11,8 @@ export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   BOOTSTRAP_ADMIN_USERNAME: z.string().optional(),
   BOOTSTRAP_ADMIN_PASSWORD: z.string().optional(),
-  CSRF_SECRET: z.string().default('csrf-secret-change-in-production'),
+  CSRF_SECRET: z.string().optional(),
+  SESSION_SECRET: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
