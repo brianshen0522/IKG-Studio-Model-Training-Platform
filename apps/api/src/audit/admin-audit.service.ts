@@ -84,7 +84,9 @@ function parseTimestamp(v?: string): string | null {
 }
 
 function csvEscape(v: unknown): string {
-  const s = v === null || v === undefined ? '' : String(v);
+  let s = v === null || v === undefined ? '' : String(v);
+  // Spreadsheets run a cell starting with one of these as a formula.
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
