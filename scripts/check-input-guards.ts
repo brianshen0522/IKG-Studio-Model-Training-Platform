@@ -28,12 +28,13 @@ for (const bad of ['', '/etc/passwd', '/proc/self/environ', '../x', 'a/../../x',
 // CSRF tokens depend on the configured secret, and there is no built-in one.
 const service = (env: Record<string, string>) => new CsrfService(env as never);
 const signed = service({ SESSION_SECRET: 'one' });
-const token = signed.generateToken();
-assert.equal(signed.validateToken(token), true);
-assert.equal(service({ SESSION_SECRET: 'two' }).validateToken(token), false);
-assert.equal(service({ CSRF_SECRET: 'one' }).validateToken(token), true);
-assert.equal(service({}).validateToken(token), false);
-assert.equal(signed.validateToken(`${token.split('.')[0]}.${'0'.repeat(64)}`), false);
-assert.equal(signed.validateToken('nonsense'), false);
+const token = signed.generateToken('session-a');
+assert.equal(signed.validateToken(token, 'session-a'), true);
+assert.equal(signed.validateToken(token, 'session-b'), false);
+assert.equal(service({ SESSION_SECRET: 'two' }).validateToken(token, 'session-a'), false);
+assert.equal(service({ CSRF_SECRET: 'one' }).validateToken(token, 'session-a'), true);
+assert.equal(service({}).validateToken(token, 'session-a'), false);
+assert.equal(signed.validateToken(`${token.split('.')[0]}.${'0'.repeat(64)}`, 'session-a'), false);
+assert.equal(signed.validateToken('nonsense', 'session-a'), false);
 
 console.log('input guards ok');

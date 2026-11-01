@@ -4,6 +4,7 @@ import { type Kysely, sql } from 'kysely';
 import type { Database } from '@model-trainer/db';
 import { errorCode } from '@model-trainer/shared-types';
 import { AuditService } from '../../audit/audit.service';
+import { SystemSettingsService as AuthSettingsCache } from '../../auth/system-settings.service';
 
 const FIELDS = ['setting_key', 'value', 'description', 'is_secret', 'updated_at'] as const;
 
@@ -15,6 +16,7 @@ export class SystemSettingsService {
   constructor(
     @Inject(DB_PROVIDER) private readonly db: Kysely<Database>,
     private readonly auditService: AuditService,
+    private readonly authSettings: AuthSettingsCache,
   ) {}
 
   async list() {
@@ -41,6 +43,8 @@ export class SystemSettingsService {
         updated_by_user_id: actorUserId,
       })
       .where('setting_key', '=', key).execute();
+    // Lockout and session limits are cached for the login path.
+    this.authSettings.invalidateCache();
 
     const updated = await this.db.selectFrom('system_settings').select(FIELDS)
       .where('setting_key', '=', key).executeTakeFirstOrThrow();

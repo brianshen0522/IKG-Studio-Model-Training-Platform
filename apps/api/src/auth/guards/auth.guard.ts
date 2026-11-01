@@ -70,7 +70,7 @@ export class AuthGuard implements CanActivate {
     }
 
     if (WRITE_METHODS.has(method)) {
-      this.validateCsrf(request);
+      this.validateCsrf(request, token);
     }
 
     const roles = this.reflector.getAllAndOverride<UserRole[]>(ROLES_KEY, [
@@ -112,9 +112,9 @@ export class AuthGuard implements CanActivate {
     return true;
   }
 
-  private validateCsrf(request: Record<string, unknown>): void {
+  private validateCsrf(request: Record<string, unknown>, sessionToken: string): void {
     const token = (request.headers as Record<string, string>)?.[this.csrfService.headerName()];
-    if (!token || !this.csrfService.validateToken(token)) {
+    if (!token || !this.csrfService.validateToken(token, sessionToken)) {
       throw new HttpException(
         { error: { code: errorCode.AUTH_CSRF_TOKEN_INVALID, message: 'Invalid CSRF token', requestId: '' } },
         403,

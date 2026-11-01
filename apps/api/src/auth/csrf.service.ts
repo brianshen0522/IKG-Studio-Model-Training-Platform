@@ -16,20 +16,21 @@ export class CsrfService {
     this.secret = env.CSRF_SECRET || env.SESSION_SECRET || randomBytes(32).toString('hex');
   }
 
-  private sign(nonce: string): string {
-    return createHmac('sha256', this.secret).update(nonce).digest('hex');
+  /** Covers the session too, so a token issued to one account is no use in another's. */
+  private sign(nonce: string, sessionToken: string): string {
+    return createHmac('sha256', this.secret).update(`${sessionToken}.${nonce}`).digest('hex');
   }
 
-  generateToken(): string {
+  generateToken(sessionToken: string): string {
     const nonce = randomBytes(16).toString('hex');
-    return `${nonce}.${this.sign(nonce)}`;
+    return `${nonce}.${this.sign(nonce, sessionToken)}`;
   }
 
-  validateToken(token: string): boolean {
+  validateToken(token: string, sessionToken: string): boolean {
     const parts = token.split('.');
     if (parts.length !== 2) return false;
     const [nonce, hmac] = parts;
-    const expected = Buffer.from(this.sign(nonce));
+    const expected = Buffer.from(this.sign(nonce, sessionToken));
     const actual = Buffer.from(hmac);
     return actual.length === expected.length && timingSafeEqual(actual, expected);
   }

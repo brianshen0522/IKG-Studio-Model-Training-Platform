@@ -174,6 +174,22 @@ export class SessionService {
     return data;
   }
 
+  /** Whether a long-lived connection may stay open. Read-only: it must not extend the idle window. */
+  async isActive(token: string): Promise<boolean> {
+    const row = await this.db
+      .selectFrom('user_sessions as s')
+      .innerJoin('users as u', 'u.id', 's.user_id')
+      .select('s.id')
+      .where('s.session_token_hash', '=', this.hashToken(token))
+      .where('s.revoked_at', 'is', null)
+      .where('s.idle_expires_at', '>', sql<string>`now()`)
+      .where('s.absolute_expires_at', '>', sql<string>`now()`)
+      .where('u.status', '=', 'ACTIVE')
+      .whereRef('u.password_updated_at', '=', 's.created_password_version')
+      .executeTakeFirst();
+    return !!row;
+  }
+
   async revoke(token: string, reason?: string): Promise<void> {
     const tokenHash = this.hashToken(token);
     const redisKey = REDIS_PREFIX + tokenHash;

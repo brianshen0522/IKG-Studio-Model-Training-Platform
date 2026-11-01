@@ -188,7 +188,7 @@ export class AuthController {
       ua,
     );
 
-    const csrfToken = this.csrfService.generateToken();
+    const csrfToken = this.csrfService.generateToken(sessionId);
 
     res.cookie(this.sessionService.cookieName(), sessionId, {
       httpOnly: true,
@@ -311,6 +311,7 @@ export class AuthController {
     return { ...row, permissions };
   }
 
+  @UseGuards(AuthRateLimitGuard)
   @Post('change-password')
   @HttpCode(200)
   async changePassword(

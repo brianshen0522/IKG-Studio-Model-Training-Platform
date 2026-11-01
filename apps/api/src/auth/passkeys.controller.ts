@@ -77,7 +77,7 @@ export class PasskeysController {
     const ua = req.headers['user-agent'] ?? null;
     const { user, sessionId } = await this.webauthn.loginVerify(challengeId, body.response, ip, ua, randomUUID());
 
-    const csrfToken = this.csrfService.generateToken();
+    const csrfToken = this.csrfService.generateToken(sessionId);
     res.cookie(this.sessionService.cookieName(), sessionId, { httpOnly: true, secure: COOKIE_SECURE, sameSite: 'lax', path: '/' });
     res.cookie(this.csrfService.cookieName(), csrfToken, { httpOnly: false, secure: COOKIE_SECURE, sameSite: 'lax', path: '/' });
     res.clearCookie(WA_COOKIE, { path: '/' });
