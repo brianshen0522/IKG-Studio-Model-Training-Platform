@@ -56,6 +56,10 @@ except mi.IngestError:
 except urllib.error.URLError as e:
     assert isinstance(e.reason, mi.IngestError), e
 
+# Metadata services stay blocked when private networks are allowed.
+for address in ("169.254.169.254", "169.254.170.2", "168.63.129.16", "100.100.100.200", "fd00:ec2::254"):
+    assert refused(address, allow_private=True), address
+
 assert mi._build_opener(allow_private=True).open(url, timeout=5).read() == b"ok"
 server.shutdown()
 print("ingest guard ok")

@@ -23,7 +23,10 @@ INGEST_EVENT = "job.model_ingest.dispatch"
 MAX_DOWNLOAD_BYTES = 5 * 1024 * 1024 * 1024   # 5 GiB hard ceiling
 MAX_REDIRECTS = 5
 DOWNLOAD_TIMEOUT_S = 300
-_METADATA_IPS = {"169.254.169.254"}
+_METADATA_IPS = {
+    "169.254.169.254", "169.254.170.2", "fd00:ec2::254",  # AWS, ECS tasks, IPv6 IMDS
+    "168.63.129.16", "100.100.100.200",  # Azure wire server, Alibaba
+}
 # Ultralytics writes the task into the checkpoint; map it onto our own enum.
 _TASK_FROM_ULTRALYTICS = {
     "detect": "DETECT", "obb": "OBB", "segment": "SEGMENT",
