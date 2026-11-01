@@ -3,7 +3,7 @@ FROM node:24-slim AS build
 WORKDIR /app
 RUN corepack enable
 COPY . .
-RUN pnpm install --no-frozen-lockfile
+RUN pnpm install --frozen-lockfile
 RUN pnpm --filter "@model-trainer/api..." build
 
 FROM node:24-slim

@@ -3,7 +3,7 @@ FROM node:24-slim AS build
 WORKDIR /app
 RUN corepack enable
 COPY . .
-RUN pnpm install --no-frozen-lockfile
+RUN pnpm install --frozen-lockfile
 # shared-types resolves to dist, so it has to be compiled before the web build can find
 # its type declarations. `...` pulls in the workspace dependencies of web.
 RUN pnpm --filter "@model-trainer/web..." build
