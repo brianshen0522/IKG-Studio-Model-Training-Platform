@@ -1,3 +1,5 @@
+import { resolve } from 'path';
+
 /**
  * Overlap rules for the per-dataset-type filesystem roots.
  *
@@ -41,6 +43,17 @@ export function rootRelation(a: string, b: string): RootRelation {
  */
 export function nestedRootsWithin<T extends { path: string }>(base: string, others: T[]): T[] {
   return others.filter((o) => rootRelation(o.path, base) === 'inside');
+}
+
+/**
+ * True for a path the dataset layout may point at: relative with no `..`, or absolute and
+ * still inside the dataset directory. Workers join these onto the dataset directory, and
+ * joining an absolute path discards it, so an outside path would be opened as given.
+ */
+export function isDatasetSubPath(datasetDir: string, p: string): boolean {
+  if (!p || p.includes('\0')) return false;
+  if (p.startsWith('/')) return isWithinRoot(resolve(p), resolve(datasetDir));
+  return !p.split('/').some((seg) => seg === '..');
 }
 
 /** True when `absolutePath` is at or below `root`. */

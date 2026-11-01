@@ -9,7 +9,7 @@ import { DatasetTypesTreeService } from '../admin/dataset-types/dataset-types-tr
 import { createHash, randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { normalizeRoot, isWithinRoot } from '../common/roots';
+import { normalizeRoot, isWithinRoot, isDatasetSubPath } from '../common/roots';
 import { dispatchDirectoryReindex, isReindexRunning } from './reindex';
 import { inspectLabelGeometry, geometryDetails } from './label-geometry';
 
@@ -126,7 +126,7 @@ export class SourceDatasetsService {
       }
       const relativePath = `${effPath.dataset_path}/${subPath}`;
       for (const p of [imagesRel, labelsRel, input.classes_file_relative_path].filter(Boolean) as string[]) {
-        if (!validRelPath(p) && !p.startsWith('/')) {
+        if (!isDatasetSubPath(relativePath, p)) {
           throw err(errorCode.DATASET_PATH_INVALID, `invalid path: ${p}`, 400);
         }
       }

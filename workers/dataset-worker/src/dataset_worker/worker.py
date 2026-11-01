@@ -180,6 +180,12 @@ class DatasetWorker:
                         if _has_symlink_component(root_check, d) or os.path.islink(d):
                             raise ScanError("DATASET_PATH_SYMLINK_NOT_ALLOWED", f"{label} path traverses a symlink")
 
+                    if classes_file and os.path.exists(classes_file):
+                        if not _within_root(root_check, classes_file):
+                            raise ScanError("DATASET_PATH_OUTSIDE_ROOT", "classes file outside root")
+                        if _has_symlink_component(root_check, classes_file) or os.path.islink(classes_file):
+                            raise ScanError("DATASET_PATH_SYMLINK_NOT_ALLOWED", "classes file traverses a symlink")
+
                     fallback_names = None
                     if not classes_file and not manual_override:
                         fallback_names = self._majority_classes_for_type(conn, dataset_type_id, source_dataset_id)
