@@ -11,7 +11,7 @@ import uuid
 
 import psycopg
 
-from . import log
+from . import data_yaml, log
 from .gpu_alloc import GpuAllocation
 from .heartbeat import Heartbeat
 from .model_cache import fetch_model_file
@@ -162,6 +162,9 @@ class Benchmarker:
     def _evaluate(self, ctx: dict, work_dir: str, eval_id: str) -> dict:
         if not os.path.isfile(ctx["data_yaml"]):
             raise BenchmarkError("PREPARATION", "BENCHMARK_DATA_YAML_MISSING", f"data.yaml not found: {ctx['data_yaml']}")
+        yaml_problem = data_yaml.problem(ctx["data_yaml"])
+        if yaml_problem:
+            raise BenchmarkError("PREPARATION", "BENCHMARK_DATA_YAML_INVALID", yaml_problem)
         shutil.rmtree(work_dir, ignore_errors=True)
         os.makedirs(work_dir, exist_ok=True)
 

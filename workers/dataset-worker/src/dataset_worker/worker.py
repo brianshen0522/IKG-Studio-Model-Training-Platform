@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 import uuid
 import hashlib
@@ -20,6 +21,7 @@ TRAINING_DATASET_SCAN_EVENT = "job.training_dataset_scan.dispatch"
 MODEL_INGEST_EVENT = "job.model_ingest.dispatch"
 TRAINING_DATASET_DELETE_EVENT = "job.training_dataset_delete.dispatch"
 DIRECTORY_REINDEX_EVENT = "job.dataset_directory_reindex.dispatch"
+_ZIP_URL = re.compile(r"https?://\S+\.zip")
 
 
 def _within_root(root: str, target: str) -> bool:
@@ -421,6 +423,12 @@ class DatasetWorker:
 
         if not isinstance(data, dict):
             raise ScanError("TRAINING_DATA_YAML_INVALID", "data.yaml root must be a dict")
+
+        # Ultralytics runs anything but a plain .zip URL here when a split path is missing.
+        # A registered directory is data, and nothing about it may decide what code runs.
+        download = data.get("download")
+        if download is not None and not (isinstance(download, str) and _ZIP_URL.fullmatch(download)):
+            raise ScanError("TRAINING_DATA_YAML_INVALID", "data.yaml 'download' may only be an http(s) .zip URL")
 
         path_val = data.get("path")
         names = data.get("names", {})
