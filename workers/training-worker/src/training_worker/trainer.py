@@ -224,6 +224,9 @@ class Trainer:
     # data, write outside its workspace, or resume an unrelated run.
     _RESERVED_ARGS = frozenset({
         "data", "project", "name", "save_dir", "exist_ok", "resume", "mode", "task",
+        # `cfg` replaces every other argument from a file or URL; `distill_model` loads
+        # a second model from a path. Mirrored by RESERVED_YOLO_ARGS in shared-types.
+        "cfg", "distill_model",
     })
     # Passed explicitly by _train and therefore not taken from hyperparameters.
     _EXPLICIT_ARGS = frozenset({"epochs", "imgsz", "batch"})
@@ -256,6 +259,10 @@ class Trainer:
                 continue
             if key not in DEFAULT_CFG_DICT:
                 rejected.append(f"{key} (not a YOLO training argument)")
+                continue
+            # Ultralytics also accepts a weights path here and loads it.
+            if key == "pretrained" and value is not None and not isinstance(value, bool):
+                rejected.append("pretrained (must be true or false)")
                 continue
             overrides[key] = value
 

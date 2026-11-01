@@ -18,6 +18,8 @@ export const RESERVED_YOLO_ARGS: Record<string, string> = {
   resume: 'resuming another run is not supported',
   mode: 'always train',
   task: 'derived from the training dataset',
+  cfg: 'it can replace every argument here, including the ones above',
+  distill_model: 'it loads another model from a path chosen by the job',
 };
 
 export interface YoloArgIssue {
@@ -55,6 +57,8 @@ function suggest(key: string, pool: string[] = Object.keys(YOLO_ARGS)): string |
 function checkValue(key: string, spec: YoloArgSpec, value: unknown): string | null {
   if (value === null || value === undefined) return null;
   if (key === 'imgsz') return checkImgsz(value);
+  // Ultralytics also takes a path here and loads it; base weights are chosen in the wizard.
+  if (key === 'pretrained' && typeof value !== 'boolean') return `must be true or false, got ${JSON.stringify(value)}`;
   switch (spec.kind) {
     case 'bool':
       return typeof value === 'boolean' ? null : `must be true or false, got ${JSON.stringify(value)}`;

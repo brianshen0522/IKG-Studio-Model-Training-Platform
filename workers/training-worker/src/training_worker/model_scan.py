@@ -66,12 +66,13 @@ def read_checkpoint_metadata(path: str) -> dict:
     """Best-effort metadata for one .pt. Never raises — an unreadable file is reported
     with an `error` key so the scan can carry on and the row still shows up."""
     try:
-        import torch
+        from ultralytics.nn.tasks import torch_safe_load
     except Exception as e:  # noqa: BLE001
         return {"error": f"torch unavailable: {e}"}
 
     try:
-        ck = torch.load(path, map_location="cpu", weights_only=False)
+        # Restricted load: a .pt is a pickle, and this one has not been vetted by anyone.
+        ck, _ = torch_safe_load(path, safe_only=True)
     except Exception as e:  # noqa: BLE001
         return {"error": f"unreadable checkpoint: {str(e)[:160]}"}
 
