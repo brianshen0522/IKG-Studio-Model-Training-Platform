@@ -518,79 +518,93 @@ export function NewTrainingDatasetWizard({ onClose }: { onClose: () => void }) {
                   <PrereqNotice message={`${pending} source dataset(s) still scanning — their classes aren't ready yet. Wait for scan to finish or refresh this list.`} />
                 ) : null;
               })()}
-              {readySources.length > 0 && (
-                <div className="checklist-actions">
-                  <button
-                    type="button"
-                    className="btn btn-sm"
-                    disabled={sourceIds.length === readySources.length}
-                    onClick={() => { setSourceIds(readySources.map((s) => s.id)); setDroppedForFormat(0); setLastPicked(null); }}
-                  >
-                    Select all
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-sm"
-                    disabled={sourceIds.length === 0}
-                    onClick={() => { setSourceIds([]); setDroppedForFormat(0); setLastPicked(null); }}
-                  >
-                    Clear
-                  </button>
-                  <span className="hint">Shift-click to select a range.</span>
-                </div>
-              )}
-              <div className="checklist">
-                {readySources.length === 0 && (
-                  <EmptyState
-                    size="small"
-                    message={`No READY ${taskType} source datasets for this type. Register and scan one first, or go back and change the task type.`}
-                  />
-                )}
-                {(() => {
-                  const q = sourceSearch.trim().toLowerCase();
-                  const visible = q
-                    ? readySources
-                        .map((s, i) => ({ s, i }))
-                        .filter(({ s }) => (s.name + ' ' + (s.sub_path ?? '')).toLowerCase().includes(q))
-                    : readySources.map((s, i) => ({ s, i }));
-                  if (visible.length === 0) {
-                    return <EmptyState size="small" message="No source datasets match the filter." />;
-                  }
-                  return visible.map(({ s, i }) => (
-                    // mousedown records the modifier and fires before the checkbox's
-                    // change event, so onChange can read it. Calling preventDefault on the
-                    // input's click instead would desync the controlled checkbox: the DOM
-                    // property never flips and React keeps rendering the previous value.
-                    <label
-                      key={s.id}
-                      className="check-row"
-                      onMouseDown={(e) => { shiftHeld.current = e.shiftKey; }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={sourceIds.includes(s.id)}
-                        onKeyDown={(e) => { shiftHeld.current = e.shiftKey; }}
-                        onChange={() => {
-                          const shift = shiftHeld.current;
-                          setSourceIds(pickSources(readySources, sourceIds, i, lastPicked, shift));
-                          setDroppedForFormat(0);
-                          if (!shift) setLastPicked(i);
-                        }}
-                      />
-                      <span>
-                        {s.name}
-                        <span className="check-sub">
-                          {s.sub_path ?? s.relative_path}
-                          {` · ${formatLabel(s.task_type)}`}
-                          {s.image_count !== null && s.image_count !== undefined
-                            ? ` · ${Number(s.image_count)} images`
-                            : ''}
-                        </span>
-                      </span>
-                    </label>
-                  ));
-                })()}
-              </div>
+              {(() => {
+                const q = sourceSearch.trim().toLowerCase();
+                const visible = q
+                  ? readySources
+                      .map((s, i) => ({ s, i }))
+                      .filter(({ s }) => (s.name + ' ' + (s.sub_path ?? '')).toLowerCase().includes(q))
+                  : readySources.map((s, i) => ({ s, i }));
+
+                const allVisibleSelected = visible.length > 0 && visible.every(({ s }) => sourceIds.includes(s.id));
+
+                return (
+                  <>
+                    {readySources.length > 0 && (
+                      <div className="checklist-actions">
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          disabled={visible.length === 0}
+                          onClick={() => {
+                            const next = new Set(sourceIds);
+                            if (allVisibleSelected) {
+                              visible.forEach(({ s }) => next.delete(s.id));
+                            } else {
+                              visible.forEach(({ s }) => next.add(s.id));
+                            }
+                            setSourceIds(readySources.filter((r) => next.has(r.id)).map((r) => r.id));
+                            setDroppedForFormat(0);
+                            setLastPicked(null);
+                          }}
+                        >
+                          {allVisibleSelected ? 'Deselect all' : 'Select all'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          disabled={sourceIds.length === 0}
+                          onClick={() => { setSourceIds([]); setDroppedForFormat(0); setLastPicked(null); }}
+                        >
+                          Clear
+                        </button>
+                        <span className="hint">Shift-click to select a range.</span>
+                      </div>
+                    )}
+                    <div className="checklist">
+                      {readySources.length === 0 && (
+                        <EmptyState
+                          size="small"
+                          message={`No READY ${taskType} source datasets for this type. Register and scan one first, or go back and change the task type.`}
+                        />
+                      )}
+                      {visible.length === 0 && readySources.length > 0 ? (
+                        <EmptyState size="small" message="No source datasets match the filter." />
+                      ) : (
+                        visible.map(({ s, i }) => (
+                          <label
+                            key={s.id}
+                            className="check-row"
+                            onMouseDown={(e) => { shiftHeld.current = e.shiftKey; }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={sourceIds.includes(s.id)}
+                              onKeyDown={(e) => { shiftHeld.current = e.shiftKey; }}
+                              onChange={() => {
+                                const shift = shiftHeld.current;
+                                setSourceIds(pickSources(readySources, sourceIds, i, lastPicked, shift));
+                                setDroppedForFormat(0);
+                                if (!shift) setLastPicked(i);
+                              }}
+                            />
+                            <span>
+                              {s.name}
+                              <span className="check-sub">
+                                {s.sub_path ?? s.relative_path}
+                                {` · ${formatLabel(s.task_type)}`}
+                                {s.image_count !== null && s.image_count !== undefined
+                                  ? ` · ${Number(s.image_count)} images`
+                                  : ''}
+                              </span>
+                            </span>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </>
           )}
 

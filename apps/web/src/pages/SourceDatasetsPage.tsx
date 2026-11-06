@@ -223,214 +223,221 @@ export function SourceDatasetsPage() {
         <EmptyState message="No dataset types with a base path configured." />
       )}
 
-      {data?.map((g) => (
-        <CollapsibleTypeGroup
-          key={g.dataset_type_id}
-          collapsed={isCollapsed(g.dataset_type_id)}
-          onToggle={() => toggleGroup(g.dataset_type_id)}
-          head={<>
-            <span className="type-dot" style={{ background: g.color ?? 'var(--primary)' }} />
-            <h3>{g.name}</h3>
-            <code className="type-path">{g.dataset_path}</code>
-            <span className="stat-pill">
-              {g.folders.filter((f) => f.registered).length}/{g.folders.length} registered
-            </span>
-          </>}
-        >
-          <div className="type-group-actions">
-            <input
-              type="text"
-              className="folder-search-input"
-              placeholder="Filter folders…"
-              value={search[g.dataset_type_id] ?? ''}
-              onChange={(e) => setSearch((s) => ({ ...s, [g.dataset_type_id]: e.target.value }))}
-            />
-            <MultiSelect
-              value={statusFilter[g.dataset_type_id] ?? []}
-              options={statusOptionsFor(g.folders)}
-              onChange={(v) => setStatusFilter((s) => ({ ...s, [g.dataset_type_id]: v }))}
-              placeholder="Status…"
-              minWidth={140}
-            />
-            <button
-              className="btn btn-sm btn-ghost"
-              disabled={rescanTypeMut.isPending || g.reindexing}
-              onClick={() => rescanTypeMut.mutate(g.dataset_type_id)}
-            >
-              {g.reindexing || rescanTypeMut.isPending ? 'Reindexing…' : 'Rescan type'}
-            </button>
-            <button
-              className="btn btn-sm btn-ghost"
-              title="Browse the folder tree on disk and register one dataset directly — no full reindex needed"
-              onClick={() => setBrowseTypeId(g.dataset_type_id)}
-            >
-              Browse…
-            </button>
-            {(() => {
-              const allSelected = g.folders.length > 0 && g.folders.every((f) => selected[g.dataset_type_id]?.has(f.sub_path));
-              return (
-                <button
-                  className="btn btn-sm btn-ghost"
-                  disabled={g.folders.length === 0}
-                  onClick={() => (allSelected
-                    ? unselectAll(g.dataset_type_id)
-                    : selectAll(g.dataset_type_id, g.folders.map((f) => f.sub_path)))}
-                >
-                  {allSelected ? 'Deselect all' : 'Select all'}
-                </button>
-              );
-            })()}
-            <button
-              className="btn btn-sm btn-ghost"
-              disabled={registerAllMut.isPending || g.folders.length === 0}
-              onClick={() => {
-                const sel = selected[g.dataset_type_id]?.size ?? 0;
-                if (sel === 0 && g.folders.length > 10) {
-                  setConfirmAll({ id: g.dataset_type_id, name: g.name, count: g.folders.length });
-                  return;
-                }
-                registerAllMut.mutate({ id: g.dataset_type_id, subPaths: [...(selected[g.dataset_type_id] ?? [])] });
-              }}
-              title={
-                (selected[g.dataset_type_id]?.size ?? 0) > 0
-                  ? 'Register/rescan only the selected folders'
-                  : 'Register every unregistered folder and rescan every already-registered one'
-              }
-            >
-              {registerAllMut.isPending && registerAllMut.variables?.id === g.dataset_type_id
-                ? 'Scanning…'
-                : (selected[g.dataset_type_id]?.size ?? 0) > 0
-                  ? `Scan & register selected (${selected[g.dataset_type_id]!.size})`
-                  : 'Scan & register all'}
-            </button>
-            {(() => {
-              // Only registered folders have something to archive; unregistered ones in the
-              // selection are ignored rather than blocking the action.
-              const targets = g.folders
-                .filter((f) => selected[g.dataset_type_id]?.has(f.sub_path) && f.registered && f.source_dataset_id)
-                .map((f) => ({ id: f.source_dataset_id!, name: f.sub_path }));
-              if (targets.length === 0) return null;
-              return (
-                <button
-                  className="btn btn-sm btn-ghost"
-                  disabled={archiveMut.isPending}
-                  onClick={() => setConfirmArchive({ typeId: g.dataset_type_id, targets })}
-                >
-                  Archive selected ({targets.length})
-                </button>
-              );
-            })()}
-          </div>
+      {data?.map((g) => {
+        const q = (search[g.dataset_type_id] ?? '').trim().toLowerCase();
+        const statusSel = statusFilter[g.dataset_type_id] ?? [];
+        const visible = g.folders.filter((f) => {
+          if (q && !f.sub_path.toLowerCase().includes(q)) return false;
+          if (statusSel.length > 0 && !statusSel.includes(f.status ?? 'NONE')) return false;
+          return true;
+        });
 
-          {g.folders.length === 0 ? (
-            <EmptyState size="small" message="No dataset folders found under this path." />
-          ) : (() => {
-            const q = (search[g.dataset_type_id] ?? '').trim().toLowerCase();
-            const statusSel = statusFilter[g.dataset_type_id] ?? [];
-            const visible = g.folders.filter((f) => {
-              if (q && !f.sub_path.toLowerCase().includes(q)) return false;
-              if (statusSel.length > 0 && !statusSel.includes(f.status ?? 'NONE')) return false;
-              return true;
-            });
-            return visible.length === 0 ? (
-              <EmptyState size="small" message="No folders match the filter." />
-            ) : (
-            <div className="folder-grid">
-              {visible.map((f) => {
-                const key = `${g.dataset_type_id}::${f.sub_path}`;
-                const isBusy = busy === key || (ensureMut.isPending && ensureMut.variables?.sub_path === f.sub_path);
+        return (
+          <CollapsibleTypeGroup
+            key={g.dataset_type_id}
+            collapsed={isCollapsed(g.dataset_type_id)}
+            onToggle={() => toggleGroup(g.dataset_type_id)}
+            head={<>
+              <span className="type-dot" style={{ background: g.color ?? 'var(--primary)' }} />
+              <h3>{g.name}</h3>
+              <code className="type-path">{g.dataset_path}</code>
+              <span className="stat-pill">
+                {g.folders.filter((f) => f.registered).length}/{g.folders.length} registered
+              </span>
+            </>}
+          >
+            <div className="type-group-actions">
+              <input
+                type="text"
+                className="folder-search-input"
+                placeholder="Filter folders…"
+                value={search[g.dataset_type_id] ?? ''}
+                onChange={(e) => setSearch((s) => ({ ...s, [g.dataset_type_id]: e.target.value }))}
+              />
+              <MultiSelect
+                value={statusFilter[g.dataset_type_id] ?? []}
+                options={statusOptionsFor(g.folders)}
+                onChange={(v) => setStatusFilter((s) => ({ ...s, [g.dataset_type_id]: v }))}
+                placeholder="Status…"
+                minWidth={140}
+              />
+              <button
+                className="btn btn-sm btn-ghost"
+                disabled={rescanTypeMut.isPending || g.reindexing}
+                onClick={() => rescanTypeMut.mutate(g.dataset_type_id)}
+              >
+                {g.reindexing || rescanTypeMut.isPending ? 'Reindexing…' : 'Rescan type'}
+              </button>
+              <button
+                className="btn btn-sm btn-ghost"
+                title="Browse the folder tree on disk and register one dataset directly — no full reindex needed"
+                onClick={() => setBrowseTypeId(g.dataset_type_id)}
+              >
+                Browse…
+              </button>
+              {(() => {
+                const allVisibleSelected = visible.length > 0 && visible.every((f) => selected[g.dataset_type_id]?.has(f.sub_path));
                 return (
-                  <div
-                    className={`folder-card${f.registered ? ' is-registered' : ''}${f.missing_on_disk ? ' is-missing' : ''}`}
-                    key={f.sub_path}
-                    onClick={f.registered && f.source_dataset_id ? () => setSelectedId(f.source_dataset_id) : undefined}
-                    style={{
-                      ...(f.registered ? { cursor: 'pointer' } : {}),
-                      ...(g.color ? ({ '--tone-color': g.color } as React.CSSProperties) : {}),
+                  <button
+                    className="btn btn-sm btn-ghost"
+                    disabled={visible.length === 0}
+                    onClick={() => {
+                      const current = selected[g.dataset_type_id] ?? new Set();
+                      const next = new Set(current);
+                      if (allVisibleSelected) {
+                        visible.forEach((f) => next.delete(f.sub_path));
+                      } else {
+                        visible.forEach((f) => next.add(f.sub_path));
+                      }
+                      setSelected((s) => ({ ...s, [g.dataset_type_id]: next }));
                     }}
                   >
-                    <div className="folder-card-head">
-                      <input
-                        type="checkbox"
-                        className="folder-select-checkbox"
-                        checked={selected[g.dataset_type_id]?.has(f.sub_path) ?? false}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={() => toggleSelected(g.dataset_type_id, f.sub_path)}
-                      />
-                      <span className="folder-name">{f.sub_path}</span>
-                      {f.registered && f.status && <StatusBadge status={f.status} />}
-                    </div>
-                    {f.missing_on_disk ? (
-                      <div className="folder-sub folder-sub-warn" title={f.path}>
-                        ⚠ folder not found on disk — the next rescan archives it (or removes it if unused)
-                      </div>
-                    ) : (
-                      <div className="folder-images">{f.image_count_on_disk.toLocaleString()} images</div>
-                    )}
-                    <div className="folder-meta">
-                      <span>
-                        Format: {f.task_type === 'DETECT' ? 'BBOX' : f.task_type === 'OBB' ? 'OBB' : 'Unknown'}
-                      </span>
-                      <span>·</span>
-                      {f.registered ? (
-                        <>
-                          <span>{f.matched_pair_count ?? '—'} pairs</span>
-                          <span>·</span>
-                          <span>{f.class_count ?? '—'} classes</span>
-                        </>
-                      ) : (
-                        <span>not registered</span>
-                      )}
-                    </div>
-                    {f.registered && f.classes_source === 'TYPE_FALLBACK' && (
-                      <div className="folder-sub folder-sub-warn" title="No classes.txt in this folder; using the most common classes.txt among other datasets of this type">
-                        ⚠ classes.txt missing — using type fallback
-                      </div>
-                    )}
-                    {f.registered && f.last_scan_at && (
-                      <div className="folder-sub">Scanned {formatDate(f.last_scan_at)}</div>
-                    )}
-                    <div className="folder-actions" onClick={(e) => e.stopPropagation()}>
-                      {!f.registered ? (
-                        <button
-                          className="btn btn-sm"
-                          disabled={isBusy}
-                          onClick={() => {
-                            setBusy(key);
-                            ensureMut.mutate({ dataset_type_id: g.dataset_type_id, sub_path: f.sub_path });
-                          }}
-                        >
-                          {isBusy ? 'Registering…' : 'Register & scan'}
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            className="btn btn-sm btn-ghost"
-                            disabled={rescanMut.isPending || f.status === 'SCANNING'}
-                            onClick={() => f.source_dataset_id && rescanMut.mutate(f.source_dataset_id)}
-                          >
-                            {f.status === 'SCANNING' ? 'Scanning…' : 'Rescan'}
-                          </button>
-                          <button
-                            className="btn btn-sm btn-ghost"
-                            disabled={f.status === 'SCANNING'}
-                            title={f.status === 'SCANNING' ? 'Cannot archive while scanning' : 'Archive this dataset'}
-                            onClick={() => f.source_dataset_id && setConfirmArchive({
-                              typeId: g.dataset_type_id,
-                              targets: [{ id: f.source_dataset_id, name: f.sub_path }],
-                            })}
-                          >
-                            Archive
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
+                    {allVisibleSelected ? 'Deselect all' : 'Select all'}
+                  </button>
                 );
-              })}
+              })()}
+              <button
+                className="btn btn-sm btn-ghost"
+                disabled={registerAllMut.isPending || g.folders.length === 0}
+                onClick={() => {
+                  const sel = selected[g.dataset_type_id]?.size ?? 0;
+                  if (sel === 0 && g.folders.length > 10) {
+                    setConfirmAll({ id: g.dataset_type_id, name: g.name, count: g.folders.length });
+                    return;
+                  }
+                  registerAllMut.mutate({ id: g.dataset_type_id, subPaths: [...(selected[g.dataset_type_id] ?? [])] });
+                }}
+                title={
+                  (selected[g.dataset_type_id]?.size ?? 0) > 0
+                    ? 'Register/rescan only the selected folders'
+                    : 'Register every unregistered folder and rescan every already-registered one'
+                }
+              >
+                {registerAllMut.isPending && registerAllMut.variables?.id === g.dataset_type_id
+                  ? 'Scanning…'
+                  : (selected[g.dataset_type_id]?.size ?? 0) > 0
+                    ? `Scan & register selected (${selected[g.dataset_type_id]!.size})`
+                    : 'Scan & register all'}
+              </button>
+              {(() => {
+                // Only registered folders have something to archive; unregistered ones in the
+                // selection are ignored rather than blocking the action.
+                const targets = g.folders
+                  .filter((f) => selected[g.dataset_type_id]?.has(f.sub_path) && f.registered && f.source_dataset_id)
+                  .map((f) => ({ id: f.source_dataset_id!, name: f.sub_path }));
+                if (targets.length === 0) return null;
+                return (
+                  <button
+                    className="btn btn-sm btn-ghost"
+                    disabled={archiveMut.isPending}
+                    onClick={() => setConfirmArchive({ typeId: g.dataset_type_id, targets })}
+                  >
+                    Archive selected ({targets.length})
+                  </button>
+                );
+              })()}
             </div>
-            );
-          })()}
+
+            {g.folders.length === 0 ? (
+              <EmptyState size="small" message="No dataset folders found under this path." />
+            ) : visible.length === 0 ? (
+              <EmptyState size="small" message="No folders match the filter." />
+            ) : (
+              <div className="folder-grid">
+                {visible.map((f) => {
+                  const key = `${g.dataset_type_id}::${f.sub_path}`;
+                  const isBusy = busy === key || (ensureMut.isPending && ensureMut.variables?.sub_path === f.sub_path);
+                  return (
+                    <div
+                      className={`folder-card${f.registered ? ' is-registered' : ''}${f.missing_on_disk ? ' is-missing' : ''}`}
+                      key={f.sub_path}
+                      onClick={f.registered && f.source_dataset_id ? () => setSelectedId(f.source_dataset_id) : undefined}
+                      style={{
+                        ...(f.registered ? { cursor: 'pointer' } : {}),
+                        ...(g.color ? ({ '--tone-color': g.color } as React.CSSProperties) : {}),
+                      }}
+                    >
+                      <div className="folder-card-head">
+                        <input
+                          type="checkbox"
+                          className="folder-select-checkbox"
+                          checked={selected[g.dataset_type_id]?.has(f.sub_path) ?? false}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={() => toggleSelected(g.dataset_type_id, f.sub_path)}
+                        />
+                        <span className="folder-name">{f.sub_path}</span>
+                        {f.registered && f.status && <StatusBadge status={f.status} />}
+                      </div>
+                      {f.missing_on_disk ? (
+                        <div className="folder-sub folder-sub-warn" title={f.path}>
+                          ⚠ folder not found on disk — the next rescan archives it (or removes it if unused)
+                        </div>
+                      ) : (
+                        <div className="folder-images">{f.image_count_on_disk.toLocaleString()} images</div>
+                      )}
+                      <div className="folder-meta">
+                        <span>
+                          Format: {f.task_type === 'DETECT' ? 'BBOX' : f.task_type === 'OBB' ? 'OBB' : 'Unknown'}
+                        </span>
+                        <span>·</span>
+                        {f.registered ? (
+                          <>
+                            <span>{f.matched_pair_count ?? '—'} pairs</span>
+                            <span>·</span>
+                            <span>{f.class_count ?? '—'} classes</span>
+                          </>
+                        ) : (
+                          <span>not registered</span>
+                        )}
+                      </div>
+                      {f.registered && f.classes_source === 'TYPE_FALLBACK' && (
+                        <div className="folder-sub folder-sub-warn" title="No classes.txt in this folder; using the most common classes.txt among other datasets of this type">
+                          ⚠ classes.txt missing — using type fallback
+                        </div>
+                      )}
+                      {f.registered && f.last_scan_at && (
+                        <div className="folder-sub">Scanned {formatDate(f.last_scan_at)}</div>
+                      )}
+                      <div className="folder-actions" onClick={(e) => e.stopPropagation()}>
+                        {!f.registered ? (
+                          <button
+                            className="btn btn-sm"
+                            disabled={isBusy}
+                            onClick={() => {
+                              setBusy(key);
+                              ensureMut.mutate({ dataset_type_id: g.dataset_type_id, sub_path: f.sub_path });
+                            }}
+                          >
+                            {isBusy ? 'Registering…' : 'Register & scan'}
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              className="btn btn-sm btn-ghost"
+                              disabled={rescanMut.isPending || f.status === 'SCANNING'}
+                              onClick={() => f.source_dataset_id && rescanMut.mutate(f.source_dataset_id)}
+                            >
+                              {f.status === 'SCANNING' ? 'Scanning…' : 'Rescan'}
+                            </button>
+                            <button
+                              className="btn btn-sm btn-ghost"
+                              disabled={f.status === 'SCANNING'}
+                              title={f.status === 'SCANNING' ? 'Cannot archive while scanning' : 'Archive this dataset'}
+                              onClick={() => f.source_dataset_id && setConfirmArchive({
+                                typeId: g.dataset_type_id,
+                                targets: [{ id: f.source_dataset_id, name: f.sub_path }],
+                              })}
+                            >
+                              Archive
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
           {showArchived && (archivedByType.get(g.dataset_type_id)?.length ?? 0) > 0 && (
             <>
@@ -459,7 +466,8 @@ export function SourceDatasetsPage() {
             </>
           )}
           </CollapsibleTypeGroup>
-      ))}
+        );
+      })}
 
       {confirmArchive && (
         <ConfirmDialog
